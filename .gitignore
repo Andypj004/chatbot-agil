@@ -16,11 +16,11 @@ parts/
 sdist/
 var/
 wheels/
-share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-MANIFEST
+
+#MANIFEST
 *.manifest
 *.spec
 pip-log.txt
@@ -30,13 +30,7 @@ pip-delete-this-directory.txt
 venv/
 env/
 ENV/
-env.bak/
-venv.bak/
-
-# Environment Variables
-.env
-.env.local
-.env.*.local
+.venv
 
 # IDEs
 .vscode/
@@ -44,11 +38,23 @@ venv.bak/
 *.swp
 *.swo
 *~
-.DS_Store
 
-# Jupyter Notebook
-.ipynb_checkpoints
-*.ipynb
+# Environment Variables
+.env
+.env.local
+
+# Database
+chroma_db/
+*.db
+*.sqlite
+
+# Logs
+logs/
+*.log
+
+# Data
+data/uploads/
+data/temp/
 
 # Testing
 .pytest_cache/
@@ -98,12 +104,8 @@ dmypy.json
 cython_debug/
 
 # OS
+.DS_Store
 Thumbs.db
-ehthumbs.db
-Desktop.ini
-$RECYCLE.BIN/
 
-# API Keys & Secrets
-*.pem
-*.key
-secrets/
+# Documentation
+docs/_build/
