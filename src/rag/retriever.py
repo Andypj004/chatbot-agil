@@ -1,0 +1,235 @@
+"""RAG retriever for combining vector search with LLM"""
+
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
+
+from src.rag.vector_store import VectorStore
+from src.llm.base import BaseLLMProvider
+from src.core.config import settings
+from src.core.logger import get_logger
+
+if TYPE_CHECKING:
+    from langchain.chains import RetrievalQA
+    from langchain.prompts import PromptTemplate
+    from langchain.schema import Document
+else:
+    RetrievalQA = Any
+    PromptTemplate = Any
+    Document = Any
+
+logger = get_logger()
+
+
+class RAGRetriever:
+    """Retrieval-Augmented Generation system"""
+    
+    DEFAULT_PROMPT_TEMPLATE = """Eres un asistente experto en metodologías ágiles. Usa el siguiente contexto para responder la pregunta.
+Responde siempre en español, de forma clara y detallada.
+Si la respuesta no está en el contexto, indícalo claramente en lugar de inventar información.
+
+Contexto:
+{context}
+
+Pregunta: {question}
+
+Respuesta en español:"""
+    
+    def __init__(
+        self,
+        vector_store: VectorStore,
+        llm_provider: BaseLLMProvider,
+        prompt_template: Optional[str] = None,
+        top_k: Optional[int] = None
+    ):
+        """Initialize RAG retriever
+        
+        Args:
+            vector_store: VectorStore instance
+            llm_provider: LLM provider instance
+            prompt_template: Custom prompt template
+            top_k: Number of documents to retrieve
+        """
+        self.vector_store = vector_store
+        self.llm_provider = llm_provider
+        self.top_k = top_k or settings.top_k_results
+
+        from langchain.prompts import PromptTemplate as LangChainPromptTemplate
+        
+        # Set up prompt
+        self.prompt_template = prompt_template or self.DEFAULT_PROMPT_TEMPLATE
+        self.prompt = LangChainPromptTemplate(
+            template=self.prompt_template,
+            input_variables=["context", "question"]
+        )
+        
+        logger.info(f"RAG retriever initialized with top_k={self.top_k}")
+
+    def has_documents(self) -> bool:
+        """Return whether the backing vector store has indexed documents."""
+        return self.vector_store.get_collection_count() > 0
+
+    def _build_context(self, documents: List[Document]) -> str:
+        """Build a bounded context string from retrieved documents."""
+        max_chars = settings.rag_context_max_chars
+        context_parts: List[str] = []
+        current_chars = 0
+
+        for document in documents:
+            content = document.page_content.strip()
+            if not content:
+                continue
+
+            remaining = max_chars - current_chars
+            if remaining <= 0:
+                break
+
+            snippet = content[:remaining]
+            context_parts.append(snippet)
+            current_chars += len(snippet) + 2
+
+        return "\n\n".join(context_parts)
+    
+    def retrieve_documents(
+        self,
+        query: str,
+        k: Optional[int] = None,
+        filter: Optional[Dict[str, Any]] = None
+    ) -> List[Document]:
+        """Retrieve relevant documents for a query
+        
+        Args:
+            query: Query string
+            k: Number of documents to retrieve (overrides default)
+            filter: Optional metadata filter
+            
+        Returns:
+            List of relevant documents
+        """
+        k = k or self.top_k
+        logger.info(f"Retrieving documents for query: '{query}'")
+        
+        documents = self.vector_store.similarity_search(
+            query=query,
+            k=k,
+            filter=filter
+        )
+        
+        return documents
+    
+    def retrieve_with_scores(
+        self,
+        query: str,
+        k: Optional[int] = None,
+        filter: Optional[Dict[str, Any]] = None
+    ) -> List[tuple[Document, float]]:
+        """Retrieve relevant documents with relevance scores
+        
+        Args:
+            query: Query string
+            k: Number of documents to retrieve
+            filter: Optional metadata filter
+            
+        Returns:
+            List of tuples (document, score)
+        """
+        k = k or self.top_k
+        logger.info(f"Retrieving documents with scores for query: '{query}'")
+        
+        results = self.vector_store.similarity_search_with_score(
+            query=query,
+            k=k,
+            filter=filter
+        )
+        
+        return results
+    
+    def query(
+        self,
+        question: str,
+        k: Optional[int] = None,
+        filter: Optional[Dict[str, Any]] = None,
+        return_sources: bool = False
+    ) -> Dict[str, Any]:
+        """Query the RAG system
+        
+        Args:
+            question: Question to answer
+            k: Number of documents to retrieve
+            filter: Optional metadata filter
+            return_sources: Whether to return source documents
+            
+        Returns:
+            Dictionary with answer and optional sources
+        """
+        logger.info(f"Processing RAG query: '{question}'")
+        
+        # Retrieve relevant documents
+        documents = self.retrieve_documents(query=question, k=k, filter=filter)
+        
+        if not documents:
+            logger.warning("No relevant documents found")
+            return {
+                "answer": "No encontré información relevante en los documentos para responder esa pregunta.",
+                "sources": [] if return_sources else None
+            }
+        
+        # Format context from documents
+        context = self._build_context(documents)
+        if not context:
+            logger.warning("Retrieved documents had no usable context")
+            return {
+                "answer": "No encontré información relevante en los documentos para responder esa pregunta.",
+                "sources": [] if return_sources else None,
+            }
+        
+        # Generate answer using LLM
+        llm = self.llm_provider.get_llm()
+        formatted_prompt = self.prompt.format(context=context, question=question)
+        
+        logger.info(f"Generating answer using {self.llm_provider.get_provider_name()}")
+        result = llm.invoke(formatted_prompt)
+        # BaseChatModel.invoke() returns AIMessage; BaseLLM.invoke() returns str.
+        response = result.content if hasattr(result, "content") else result
+        
+        result = {
+            "answer": response.strip(),
+            "num_sources": len(documents)
+        }
+        
+        if return_sources:
+            result["sources"] = [
+                {
+                    "content": doc.page_content,
+                    "metadata": doc.metadata
+                }
+                for doc in documents
+            ]
+        
+        logger.info("RAG query completed successfully")
+        return result
+    
+    def create_qa_chain(self, chain_type: str = "stuff") -> RetrievalQA:
+        """Create a LangChain RetrievalQA chain
+        
+        Args:
+            chain_type: Type of chain ('stuff', 'map_reduce', 'refine', 'map_rerank')
+            
+        Returns:
+            RetrievalQA chain
+        """
+        logger.info(f"Creating QA chain with type: {chain_type}")
+
+        from langchain.chains import RetrievalQA as LangChainRetrievalQA
+        
+        retriever = self.vector_store.vectorstore.as_retriever(
+            search_kwargs={"k": self.top_k}
+        )
+        
+        qa_chain = LangChainRetrievalQA.from_chain_type(
+            llm=self.llm_provider.get_llm(),
+            chain_type=chain_type,
+            retriever=retriever,
+            return_source_documents=True,
+            chain_type_kwargs={"prompt": self.prompt}
+        )
+        
+        return qa_chain
