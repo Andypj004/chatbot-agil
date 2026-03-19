@@ -2,6 +2,71 @@ const { useEffect, useMemo, useRef, useState } = React;
 
 const DEFAULT_API_BASE = `${window.location.origin}/api/v1`;
 const DEFAULT_SESSION = localStorage.getItem("sessionId") || null;
+const MAX_SESSION_LABEL_LENGTH = 56;
+
+function truncateText(text, max = MAX_SESSION_LABEL_LENGTH) {
+  const compact = (text || "").trim();
+  if (compact.length <= max) {
+    return compact;
+  }
+  return `${compact.slice(0, max).trim()}...`;
+}
+
+function getSessionLabel(session) {
+  if (!session) {
+    return "Nueva conversacion";
+  }
+
+  const title = truncateText(session.title || "");
+  if (title) {
+    return title;
+  }
+
+  const fallback = truncateText(session.last_message || "", 42);
+  if (fallback) {
+    return fallback;
+  }
+
+  return `Chat ${String(session.session_id || "").slice(0, 8)}`;
+}
+
+function SourceReferences({ sources = [] }) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  if (!sources.length) {
+    return null;
+  }
+
+  return (
+    <div className="sources-block">
+      <button className="sources-toggle" onClick={() => setIsOpen((value) => !value)}>
+        <span>{isOpen ? "Ocultar" : "Ver"} fuentes</span>
+        <span className="sources-count">{sources.length}</span>
+      </button>
+
+      {isOpen && (
+        <div className="sources-panel">
+          {sources.map((source, sourceIndex) => {
+            const sourceTitle = source.filename || source.source || "Documento";
+            const excerpt = source.excerpt || "Sin extracto disponible.";
+            const sourceHint = source.source || source.document_id || "Referencia";
+
+            return (
+              <article key={`${sourceTitle}-${sourceIndex}`} className="source-card">
+                <div className="source-card-head">
+                  <strong>{sourceTitle}</strong>
+                  <span className="source-pill">{sourceIndex + 1}</span>
+                </div>
+                <p className="source-meta">{sourceHint}</p>
+                <p className="source-excerpt">{excerpt}</p>
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function App() {
   const [apiBase, setApiBase] = useState(localStorage.getItem("apiBase") || DEFAULT_API_BASE);
@@ -37,6 +102,7 @@ function App() {
   const chatViewportRef = useRef(null);
 
   const modelsForCurrentProvider = useMemo(() => modelsByProvider[provider] || [], [modelsByProvider, provider]);
+  const activeSession = useMemo(() => sessions.find((item) => item.session_id === sessionId) || null, [sessions, sessionId]);
 
   const request = async (path, options = {}) => {
     const response = await fetch(`${apiBase}${path}`, options);
@@ -191,6 +257,38 @@ function App() {
       createNewConversation();
     }
     await loadSessions(sessionSearch);
+  };
+
+  const renameSession = async (session) => {
+    const currentLabel = session.title || getSessionLabel(session);
+    const nextTitle = window.prompt("Nuevo titulo para esta conversacion:", currentLabel);
+    if (nextTitle === null) {
+      return;
+    }
+
+    const cleanedTitle = nextTitle.trim();
+    if (!cleanedTitle) {
+      notify("El titulo no puede estar vacio", "error");
+      return;
+    }
+
+    if (cleanedTitle === session.title) {
+      return;
+    }
+
+    await request(`/sessions/${encodeURIComponent(session.session_id)}/title`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: cleanedTitle })
+    });
+
+    setSessions((current) => current.map((item) => (
+      item.session_id === session.session_id
+        ? { ...item, title: cleanedTitle }
+        : item
+    )));
+
+    notify("Titulo actualizado", "ok");
   };
 
   const streamChat = async (payload, assistantIndex) => {
@@ -371,9 +469,10 @@ function App() {
           {sessions.map((item) => (
             <div key={item.session_id} className={`session-item ${item.session_id === sessionId ? "active" : ""}`}>
               <button className="session-select" onClick={() => loadHistory(item.session_id)}>
-                <strong>{item.session_id.slice(0, 10)}</strong>
+                <strong>{getSessionLabel(item)}</strong>
                 <span>{item.last_message || "Sin mensajes"}</span>
               </button>
+              <button className="session-rename" onClick={() => renameSession(item)} title="Renombrar charla">✎</button>
               <button className="session-delete" onClick={() => deleteSession(item.session_id)}>x</button>
             </div>
           ))}
@@ -388,8 +487,8 @@ function App() {
       <main className="chat-main">
         <header className="chat-main-header">
           <div>
-            <h2>Asistente Agile</h2>
-            <p>Sesion: {sessionId || "nueva"}</p>
+            <h2>Agile Assistant</h2>
+            <p>Sesion: {activeSession ? getSessionLabel(activeSession) : (sessionId ? `Chat ${sessionId.slice(0, 8)}` : "Nueva conversacion")}</p>
           </div>
 
           <div className="header-controls">
@@ -416,17 +515,7 @@ function App() {
           {messages.map((item, index) => (
             <article key={`${item.role}-${index}`} className={`bubble ${item.role}`}>
               <p>{item.content}</p>
-              {item.sources && item.sources.length > 0 && (
-                <div className="sources">
-                  <strong>Fuentes</strong>
-                  {item.sources.map((source, sourceIndex) => (
-                    <div key={`${source.filename || "source"}-${sourceIndex}`} className="source-item">
-                      <span>{source.filename || source.source || "Documento"}</span>
-                      <small>{source.excerpt}</small>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <SourceReferences sources={item.sources} />
             </article>
           ))}
         </section>
