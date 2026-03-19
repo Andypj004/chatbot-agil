@@ -16,6 +16,19 @@ logger = get_logger()
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 
+def _build_human_session_title(message: str) -> str:
+    """Create a concise, readable title from the first user prompt."""
+    compact = " ".join(message.strip().split())
+    if not compact:
+        return "Nueva conversacion"
+
+    max_len = 56
+    if len(compact) <= max_len:
+        return compact
+
+    return f"{compact[:max_len].rstrip()}..."
+
+
 @router.post("", response_model=ChatResponse, summary="Send a message to the chatbot")
 async def chat(request: ChatRequest):
     """Send a message to the chatbot and get a response
@@ -37,11 +50,13 @@ async def chat(request: ChatRequest):
         session_manager = get_session_manager()
         session_manager.create_session(session_id)
 
+        existing_count = session_manager.get_message_count(session_id)
+
         history = session_manager.get_messages(
             session_id,
             limit=settings.conversation_context_messages,
             offset=max(
-                session_manager.get_message_count(session_id) - settings.conversation_context_messages,
+                existing_count - settings.conversation_context_messages,
                 0,
             ),
         )
@@ -52,6 +67,13 @@ async def chat(request: ChatRequest):
             role="user",
             text=request.message,
         )
+
+        # Create a friendly title on the first user turn.
+        if existing_count == 0:
+            session_manager.update_session_title(
+                session_id=session_id,
+                title=_build_human_session_title(request.message),
+            )
 
         # Get LLM provider
         llm_provider = get_llm_provider(

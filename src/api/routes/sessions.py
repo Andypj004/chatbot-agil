@@ -1,9 +1,15 @@
 """Conversation session and history endpoints."""
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query, status
 
 from src.api.dependencies import get_session_manager
-from src.api.models import SessionHistoryResponse, SessionListResponse, SessionSummary, ConversationMessage
+from src.api.models import (
+    SessionHistoryResponse,
+    SessionListResponse,
+    SessionSummary,
+    ConversationMessage,
+    SessionTitleUpdateRequest,
+)
 from src.core.config import settings
 from src.core.logger import get_logger
 
@@ -52,3 +58,28 @@ async def delete_session(session_id: str):
     manager = get_session_manager()
     manager.clear_session(session_id)
     return {"message": f"Session {session_id} deleted successfully"}
+
+
+@router.put("/{session_id}/title", summary="Update conversation title")
+async def update_session_title(session_id: str, payload: SessionTitleUpdateRequest):
+    """Update a human-readable title for one session."""
+    manager = get_session_manager()
+
+    if not payload.title.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Title cannot be empty",
+        )
+
+    updated = manager.update_session_title(session_id=session_id, title=payload.title)
+    if not updated:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Session '{session_id}' not found",
+        )
+
+    session = manager.get_session(session_id)
+    return {
+        "message": "Session title updated successfully",
+        "session": session,
+    }
