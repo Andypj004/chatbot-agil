@@ -72,6 +72,16 @@ class VectorStore:
         )
         
         logger.info(f"Vector store initialized with collection: {self.collection_name}")
+
+    def _rebuild_vectorstore_wrapper(self) -> None:
+        """Recreate the LangChain Chroma wrapper after collection resets."""
+        from langchain_community.vectorstores import Chroma
+
+        self.vectorstore = Chroma(
+            client=self.client,
+            collection_name=self.collection_name,
+            embedding_function=self.embeddings,
+        )
     
     def add_documents(
         self,
@@ -191,6 +201,60 @@ class VectorStore:
         except Exception as e:
             logger.error(f"Error getting collection count: {e}")
             return 0
+
+    def list_indexed_documents(self) -> List[Dict[str, str]]:
+        """Return unique document metadata entries stored in the collection."""
+        try:
+            collection = self.client.get_collection(self.collection_name)
+            count = collection.count()
+            if count == 0:
+                return []
+
+            rows = collection.get(limit=count)
+            metadatas = rows.get("metadatas") or []
+            ids = rows.get("ids") or []
+
+            unique_documents: Dict[str, Dict[str, str]] = {}
+            for index, metadata in enumerate(metadatas):
+                item = metadata or {}
+
+                source = str(item.get("source") or "").strip()
+                filename = str(item.get("filename") or "").strip()
+                file_type = str(item.get("file_type") or "").strip().lower()
+                file_hash = str(item.get("file_hash") or "").strip()
+
+                if not filename and source:
+                    filename = Path(source).name
+                if not file_type and filename and "." in filename:
+                    file_type = filename.rsplit(".", 1)[-1].lower()
+
+                if file_hash:
+                    key = f"hash:{file_hash}"
+                elif source:
+                    key = f"source:{source}"
+                elif filename:
+                    key = f"name:{filename}"
+                elif index < len(ids) and ids[index]:
+                    key = f"id:{ids[index]}"
+                else:
+                    # Skip chunks with no usable metadata.
+                    continue
+
+                if key in unique_documents:
+                    continue
+
+                fallback_id = key.split(":", 1)[-1]
+                unique_documents[key] = {
+                    "filename": filename or "Documento sin nombre",
+                    "file_type": file_type or "unknown",
+                    "source": source or "unknown",
+                    "file_hash": file_hash or fallback_id,
+                }
+
+            return sorted(unique_documents.values(), key=lambda doc: doc["filename"].lower())
+        except Exception as e:
+            logger.error(f"Error listing indexed documents: {e}")
+            return []
     
     def clear_collection(self) -> bool:
         """Clear all documents from the collection
@@ -202,15 +266,18 @@ class VectorStore:
         
         try:
             self.client.delete_collection(self.collection_name)
-            # Recreate the collection
-            self.vectorstore = Chroma(
-                client=self.client,
-                collection_name=self.collection_name,
-                embedding_function=self.embeddings,
-            )
+            self._rebuild_vectorstore_wrapper()
             self._collection_count_cache = 0
             logger.info("Collection cleared successfully")
             return True
         except Exception as e:
+            error_text = str(e)
+            if "does not exist" in error_text.lower():
+                # Treat idempotent clears as successful and ensure wrapper exists.
+                self._rebuild_vectorstore_wrapper()
+                self._collection_count_cache = 0
+                logger.info("Collection did not exist; considered cleared")
+                return True
+
             logger.error(f"Error clearing collection: {e}")
             return False

@@ -578,9 +578,21 @@ function App() {
 
             <div className="doc-list">
               {documents.length === 0 ? (
-                <p>No hay metadatos detallados en el backend actual.</p>
+                <p>No hay documentos indexados para mostrar.</p>
               ) : (
-                documents.map((item, index) => <div key={`${item.filename}-${index}`}>{item.filename}</div>)
+                documents.map((item, index) => {
+                  const documentId = item.file_hash || item.document_id || item.id || "Sin ID";
+                  return (
+                    <article key={`${item.filename}-${index}`} className="doc-entry">
+                      <div className="doc-entry-head">
+                        <strong>{item.filename || "Documento sin nombre"}</strong>
+                        <span className="doc-type-pill">{(item.file_type || "unknown").toUpperCase()}</span>
+                      </div>
+                      <p><span className="doc-label">Origen:</span> {item.source || "Sin origen"}</p>
+                      <p><span className="doc-label">ID:</span> <code>{documentId}</code></p>
+                    </article>
+                  );
+                })
               )}
             </div>
 

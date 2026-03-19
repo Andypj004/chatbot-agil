@@ -409,6 +409,61 @@ textarea {
   color: var(--text-soft);
 }
 
+.doc-entry {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  background: color-mix(in srgb, var(--bg-panel) 90%, transparent);
+}
+
+.doc-entry + .doc-entry {
+  margin-top: 8px;
+}
+
+.doc-entry-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.doc-entry-head strong {
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.doc-type-pill {
+  font-size: 0.68rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  color: var(--text-soft);
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+}
+
+.doc-entry p {
+  margin: 4px 0 0;
+  font-size: 0.8rem;
+  color: var(--text-soft);
+  word-break: break-word;
+}
+
+.doc-label {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.doc-entry code {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--text);
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1px 6px;
+}
+
 .doc-delete-row {
   display: grid;
   grid-template-columns: 1fr auto;
