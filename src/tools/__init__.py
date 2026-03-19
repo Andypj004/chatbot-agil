@@ -1,5 +1,3 @@
-"""External tools for the chatbot"""
+"""Tooling package reserved for future chatbot extensions."""
 
-from src.tools.search_tool import SearchTool
-
-__all__ = ["SearchTool"]
+__all__ = []

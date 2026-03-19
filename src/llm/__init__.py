@@ -2,10 +2,31 @@
 
 from src.llm.base import BaseLLMProvider
 from src.llm.factory import LLMFactory
-from src.llm.providers.openai_provider import OpenAIProvider
-from src.llm.providers.anthropic_provider import AnthropicProvider
-from src.llm.providers.google_provider import GoogleProvider
-from src.llm.providers.deepseek_provider import DeepseekProvider
+
+try:
+    from src.llm.providers.openai_provider import OpenAIProvider
+except ImportError:  # pragma: no cover - optional dependency
+    OpenAIProvider = None
+
+try:
+    from src.llm.providers.anthropic_provider import AnthropicProvider
+except ImportError:  # pragma: no cover - optional dependency
+    AnthropicProvider = None
+
+try:
+    from src.llm.providers.google_provider import GoogleProvider
+except ImportError:  # pragma: no cover - optional dependency
+    GoogleProvider = None
+
+try:
+    from src.llm.providers.deepseek_provider import DeepseekProvider
+except ImportError:  # pragma: no cover - optional dependency
+    DeepseekProvider = None
+
+try:
+    from src.llm.providers.ollama_provider import OllamaProvider
+except ImportError:  # pragma: no cover - optional dependency
+    OllamaProvider = None
 
 __all__ = [
     "BaseLLMProvider",
@@ -14,4 +35,5 @@ __all__ = [
     "AnthropicProvider",
     "GoogleProvider",
     "DeepseekProvider",
+    "OllamaProvider",
 ]

@@ -14,10 +14,8 @@ langchain-google-genai==0.0.5
 # Vector Database
 chromadb==0.4.22
 sentence-transformers==2.3.1
-
-# Search Tools
-google-search-results==2.4.2
-tavily-python==0.3.1
+torch==2.2.2
+transformers==4.38.2
 
 # HTTP and Async
 httpx==0.26.0

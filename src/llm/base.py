@@ -1,9 +1,13 @@
 """Base class for LLM providers"""
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
-from langchain.schema import BaseMessage
-from langchain.chat_models.base import BaseChatModel
+from typing import Any, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Accept both chat models (BaseChatModel) and completion LLMs (BaseLLM).
+    from langchain.schema.language_model import BaseLanguageModel
+else:
+    BaseLanguageModel = Any
 
 
 class BaseLLMProvider(ABC):
@@ -26,6 +30,7 @@ class BaseLLMProvider(ABC):
             max_tokens: Maximum tokens to generate
             **kwargs: Additional provider-specific parameters
         """
+        self.validate_generation_params(temperature=temperature, max_tokens=max_tokens)
         self.api_key = api_key
         self.model_name = model_name
         self.temperature = temperature
@@ -34,11 +39,11 @@ class BaseLLMProvider(ABC):
         self._llm: Optional[BaseChatModel] = None
     
     @abstractmethod
-    def get_llm(self) -> BaseChatModel:
-        """Get the LangChain chat model instance
-        
-        Returns:
-            Configured BaseChatModel instance
+    def get_llm(self) -> BaseLanguageModel:
+        """Get the LangChain language model instance.
+
+        Returns a ``BaseChatModel`` for cloud providers (OpenAI, Anthropic, …)
+        or a ``BaseLLM`` for local providers (Ollama). Both support ``invoke()``.
         """
         pass
     
@@ -66,3 +71,11 @@ class BaseLLMProvider(ABC):
             True if API key is valid, False otherwise
         """
         return bool(self.api_key and self.api_key.strip())
+
+    @staticmethod
+    def validate_generation_params(temperature: float, max_tokens: int) -> None:
+        """Validate common generation parameters shared across providers."""
+        if not 0.0 <= temperature <= 1.0:
+            raise ValueError("temperature must be between 0.0 and 1.0")
+        if max_tokens <= 0:
+            raise ValueError("max_tokens must be greater than 0")

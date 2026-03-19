@@ -1,19 +1,16 @@
 """Document processing and chunking utilities"""
 
-from typing import List, Optional
+from typing import Any, List, Optional, TYPE_CHECKING
 from pathlib import Path
 import hashlib
-from langchain.schema import Document
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.document_loaders import (
-    PyPDFLoader,
-    TextLoader,
-    Docx2txtLoader,
-    UnstructuredMarkdownLoader
-)
 
 from src.core.config import settings
 from src.core.logger import get_logger
+
+if TYPE_CHECKING:
+    from langchain.schema import Document
+else:
+    Document = Any
 
 logger = get_logger()
 
@@ -34,6 +31,8 @@ class DocumentProcessor:
         """
         self.chunk_size = chunk_size or settings.chunk_size
         self.chunk_overlap = chunk_overlap or settings.chunk_overlap
+
+        from langchain.text_splitter import RecursiveCharacterTextSplitter
         
         # Initialize text splitter
         self.text_splitter = RecursiveCharacterTextSplitter(
@@ -71,12 +70,16 @@ class DocumentProcessor:
         
         try:
             if file_extension == ".pdf":
+                from langchain_community.document_loaders import PyPDFLoader
                 loader = PyPDFLoader(file_path)
             elif file_extension == ".txt":
+                from langchain_community.document_loaders import TextLoader
                 loader = TextLoader(file_path, encoding="utf-8")
             elif file_extension in [".docx", ".doc"]:
+                from langchain_community.document_loaders import Docx2txtLoader
                 loader = Docx2txtLoader(file_path)
             elif file_extension in [".md", ".markdown"]:
+                from langchain_community.document_loaders import UnstructuredMarkdownLoader
                 loader = UnstructuredMarkdownLoader(file_path)
             else:
                 raise ValueError(
@@ -150,9 +153,11 @@ class DocumentProcessor:
             List of chunked Document objects
         """
         logger.info(f"Processing raw text ({len(text)} characters)")
+
+        from langchain.schema import Document as LangChainDocument
         
         # Create a document from the text
-        doc = Document(page_content=text, metadata=metadata or {})
+        doc = LangChainDocument(page_content=text, metadata=metadata or {})
         
         # Chunk the document
         chunked_docs = self.text_splitter.split_documents([doc])

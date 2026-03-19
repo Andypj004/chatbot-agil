@@ -1,15 +1,15 @@
 """Vector store management using ChromaDB"""
 
-from typing import List, Optional, Dict, Any
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from pathlib import Path
-import chromadb
-from chromadb.config import Settings as ChromaSettings
-from langchain.vectorstores import Chroma
-from langchain.embeddings import HuggingFaceEmbeddings
-from langchain.schema import Document
 
 from src.core.config import settings
 from src.core.logger import get_logger
+
+if TYPE_CHECKING:
+    from langchain.schema import Document
+else:
+    Document = Any
 
 logger = get_logger()
 
@@ -33,17 +33,30 @@ class VectorStore:
         self.collection_name = collection_name
         self.persist_directory = persist_directory or settings.chroma_persist_dir
         self.embedding_model_name = embedding_model or settings.embedding_model
+        self._collection_count_cache: Optional[int] = None
         
         # Create persist directory if it doesn't exist
         Path(self.persist_directory).mkdir(parents=True, exist_ok=True)
+
+        import chromadb
+        from chromadb.config import Settings as ChromaSettings
+        from langchain_community.embeddings import HuggingFaceEmbeddings
+        from langchain_community.vectorstores import Chroma
         
         # Initialize embeddings
         logger.info(f"Loading embedding model: {self.embedding_model_name}")
-        self.embeddings = HuggingFaceEmbeddings(
-            model_name=self.embedding_model_name,
-            model_kwargs={'device': 'cpu'},
-            encode_kwargs={'normalize_embeddings': True}
-        )
+        try:
+            self.embeddings = HuggingFaceEmbeddings(
+                model_name=self.embedding_model_name,
+                model_kwargs={"device": "cpu"},
+                encode_kwargs={"normalize_embeddings": True}
+            )
+        except Exception as e:
+            logger.error(f"Failed to initialize embeddings model '{self.embedding_model_name}': {e}")
+            raise RuntimeError(
+                "Embedding initialization failed. Check torch/transformers compatibility "
+                "and rebuild the Docker image with updated dependencies."
+            ) from e
         
         # Initialize ChromaDB client
         self.client = chromadb.PersistentClient(
@@ -80,6 +93,8 @@ class VectorStore:
             document_ids = self.vectorstore.add_documents(documents, ids=ids)
         else:
             document_ids = self.vectorstore.add_documents(documents)
+
+        self._collection_count_cache = None
         
         logger.info(f"Successfully added {len(document_ids)} documents")
         return document_ids
@@ -151,21 +166,26 @@ class VectorStore:
         
         try:
             self.vectorstore.delete(ids=ids)
+            self._collection_count_cache = None
             logger.info("Documents deleted successfully")
             return True
         except Exception as e:
             logger.error(f"Error deleting documents: {e}")
             return False
     
-    def get_collection_count(self) -> int:
+    def get_collection_count(self, force_refresh: bool = False) -> int:
         """Get the number of documents in the collection
         
         Returns:
             Number of documents
         """
+        if self._collection_count_cache is not None and not force_refresh:
+            return self._collection_count_cache
+
         try:
             collection = self.client.get_collection(self.collection_name)
             count = collection.count()
+            self._collection_count_cache = count
             logger.info(f"Collection '{self.collection_name}' has {count} documents")
             return count
         except Exception as e:
@@ -188,6 +208,7 @@ class VectorStore:
                 collection_name=self.collection_name,
                 embedding_function=self.embeddings,
             )
+            self._collection_count_cache = 0
             logger.info("Collection cleared successfully")
             return True
         except Exception as e:

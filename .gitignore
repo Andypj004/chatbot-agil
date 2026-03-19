@@ -20,12 +20,6 @@ wheels/
 .installed.cfg
 *.egg
 
-#MANIFEST
-*.manifest
-*.spec
-pip-log.txt
-pip-delete-this-directory.txt
-
 # Virtual Environment
 venv/
 env/
@@ -61,47 +55,6 @@ data/temp/
 .coverage
 htmlcov/
 .tox/
-.nox/
-coverage.xml
-*.cover
-.hypothesis/
-
-# Logs
-logs/
-*.log
-
-# ChromaDB & Vector Stores
-data/vector_store/
-*.chroma
-chroma.sqlite3
-
-# Processed Data
-data/processed/
-*.pkl
-*.pickle
-
-# Temporary Files
-tmp/
-temp/
-*.tmp
-
-# Documentation builds
-docs/_build/
-site/
-
-# mypy
-.mypy_cache/
-.dmypy.json
-dmypy.json
-
-# Pyre type checker
-.pyre/
-
-# pytype static type analyzer
-.pytype/
-
-# Cython debug symbols
-cython_debug/
 
 # OS
 .DS_Store

@@ -25,13 +25,16 @@ def setup_logger():
     log_dir.mkdir(exist_ok=True)
     
     # Add file handler
-    logger.add(
-        "logs/chatbot_{time:YYYY-MM-DD}.log",
-        rotation="00:00",
-        retention="30 days",
-        level=settings.log_level,
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
-    )
+    try:
+        logger.add(
+            "logs/chatbot_{time:YYYY-MM-DD}.log",
+            rotation="00:00",
+            retention="30 days",
+            level=settings.log_level,
+            format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
+        )
+    except OSError as exc:
+        logger.warning(f"File logging disabled: {exc}")
     
     return logger
 

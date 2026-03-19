@@ -1,9 +1,14 @@
 """Chat endpoint for interacting with the chatbot"""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import json
+from uuid import uuid4
+
+from fastapi import APIRouter, HTTPException, status
+from fastapi.responses import StreamingResponse
 
 from src.api.models import ChatRequest, ChatResponse
-from src.api.dependencies import get_llm_provider, get_chatbot_agent
+from src.api.dependencies import get_llm_provider, get_chatbot_agent, get_session_manager
+from src.core.config import settings
 from src.core.logger import get_logger
 
 logger = get_logger()
@@ -17,7 +22,6 @@ async def chat(request: ChatRequest):
     
     The chatbot can use:
     - RAG (Retrieval-Augmented Generation) for knowledge base queries
-    - Online search for real-time information
     - Multiple LLM providers (OpenAI, Claude, Gemini, Deepseek)
     
     Args:
@@ -29,6 +33,26 @@ async def chat(request: ChatRequest):
     logger.info(f"Received chat request: {request.message[:100]}...")
     
     try:
+        session_id = request.session_id or str(uuid4())
+        session_manager = get_session_manager()
+        session_manager.create_session(session_id)
+
+        history = session_manager.get_messages(
+            session_id,
+            limit=settings.conversation_context_messages,
+            offset=max(
+                session_manager.get_message_count(session_id) - settings.conversation_context_messages,
+                0,
+            ),
+        )
+
+        # Persist user message before generation so session continuity is guaranteed.
+        session_manager.append_message(
+            session_id=session_id,
+            role="user",
+            text=request.message,
+        )
+
         # Get LLM provider
         llm_provider = get_llm_provider(
             provider_name=request.llm_provider,
@@ -39,19 +63,73 @@ async def chat(request: ChatRequest):
         # Get chatbot agent
         agent = get_chatbot_agent(
             llm_provider=llm_provider,
+            provider_name=request.llm_provider,
+            model_name=request.model_name,
+            temperature=request.temperature,
             use_rag=request.use_rag,
-            use_search=request.use_online_search
         )
-        
-        # Process message
+
+        if request.stream:
+            def event_generator():
+                full_response = ""
+                final_payload = {
+                    "provider": llm_provider.get_provider_name(),
+                    "model": llm_provider.model_name,
+                    "used_rag": False,
+                    "sources": [],
+                }
+
+                for event in agent.chat_stream(
+                    message=request.message,
+                    use_rag=request.use_rag,
+                    conversation_messages=history,
+                ):
+                    if event.get("type") == "delta":
+                        content = event.get("content", "")
+                        full_response += content
+                        yield f"data: {json.dumps({'type': 'delta', 'content': content})}\n\n"
+                    elif event.get("type") == "final":
+                        final_payload = event
+
+                session_manager.append_message(
+                    session_id=session_id,
+                    role="assistant",
+                    text=full_response.strip(),
+                    provider=final_payload.get("provider"),
+                    model=final_payload.get("model"),
+                    used_rag=final_payload.get("used_rag"),
+                    sources=final_payload.get("sources") or [],
+                )
+
+                yield (
+                    "data: "
+                    f"{json.dumps({'type': 'final', 'session_id': session_id, **final_payload})}"
+                    "\n\n"
+                )
+
+            return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+        # Process message (non-stream)
         result = agent.chat(
             message=request.message,
             use_rag=request.use_rag,
-            use_search=request.use_online_search
+            conversation_messages=history,
         )
-        
+
+        session_manager.append_message(
+            session_id=session_id,
+            role="assistant",
+            text=result["response"],
+            provider=result.get("provider"),
+            model=result.get("model"),
+            used_rag=result.get("used_rag"),
+            sources=result.get("sources") or [],
+        )
+
+        result["session_id"] = session_id
         return ChatResponse(**result)
-        
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error processing chat request: {e}")
         raise HTTPException(

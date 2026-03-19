@@ -1,6 +1,10 @@
 """Anthropic (Claude) LLM provider implementation"""
 
-from langchain_anthropic import ChatAnthropic
+try:
+    from langchain_anthropic import ChatAnthropic
+except ImportError:
+    # Compatibility path for older langchain-anthropic releases.
+    from langchain_anthropic.chat_models import ChatAnthropic
 from langchain.chat_models.base import BaseChatModel
 
 from src.llm.base import BaseLLMProvider
@@ -43,4 +47,4 @@ class AnthropicProvider(BaseLLMProvider):
         Returns:
             Default model name
         """
-        return "claude-3-opus-20240229"
+        return "claude-3-5-sonnet-latest"

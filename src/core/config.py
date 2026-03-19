@@ -20,10 +20,7 @@ class Settings(BaseSettings):
     anthropic_api_key: Optional[str] = Field(default=None, alias="ANTHROPIC_API_KEY")
     google_api_key: Optional[str] = Field(default=None, alias="GOOGLE_API_KEY")
     deepseek_api_key: Optional[str] = Field(default=None, alias="DEEPSEEK_API_KEY")
-    
-    # Search API Keys
-    serper_api_key: Optional[str] = Field(default=None, alias="SERPER_API_KEY")
-    tavily_api_key: Optional[str] = Field(default=None, alias="TAVILY_API_KEY")
+    ollama_api_key: Optional[str] = Field(default=None, alias="OLLAMA_API_KEY")
     
     # Application Settings
     default_llm_provider: str = Field(default="openai", alias="DEFAULT_LLM_PROVIDER")
@@ -36,6 +33,7 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     max_tokens: int = Field(default=2000, alias="MAX_TOKENS")
     temperature: float = Field(default=0.7, alias="TEMPERATURE")
+    ollama_base_url: str = Field(default="http://localhost:11434", alias="OLLAMA_BASE_URL")
     
     # API Configuration
     api_host: str = Field(default="0.0.0.0", alias="API_HOST")
@@ -50,16 +48,34 @@ class Settings(BaseSettings):
     chunk_size: int = Field(default=1000, alias="CHUNK_SIZE")
     chunk_overlap: int = Field(default=200, alias="CHUNK_OVERLAP")
     top_k_results: int = Field(default=5, alias="TOP_K_RESULTS")
+    rag_context_max_chars: int = Field(default=6000, alias="RAG_CONTEXT_MAX_CHARS")
+
+    # Conversation history / memory
+    conversation_db_path: str = Field(
+        default="./data/conversations.db",
+        alias="CONVERSATION_DB_PATH"
+    )
+    conversation_context_messages: int = Field(
+        default=12,
+        alias="CONVERSATION_CONTEXT_MESSAGES"
+    )
+    conversation_list_limit: int = Field(
+        default=50,
+        alias="CONVERSATION_LIST_LIMIT"
+    )
+
+    # Startup / lifecycle
+    warmup_vector_store_on_startup: bool = Field(
+        default=True,
+        alias="WARMUP_VECTOR_STORE_ON_STARTUP"
+    )
+    warmup_default_provider_on_startup: bool = Field(
+        default=False,
+        alias="WARMUP_DEFAULT_PROVIDER_ON_STARTUP"
+    )
     
     def get_api_key(self, provider: str) -> Optional[str]:
-        """
-        Get API key for a specific LLM provider
-
-        Args:
-            provider (str): The name of the LLM provider
-        Returns:
-            Optional[str]: The API key if configured, else None
-        """
+        """Get API key for a specific LLM provider"""
         key_mapping = {
             "openai": self.openai_api_key,
             "anthropic": self.anthropic_api_key,
@@ -67,17 +83,10 @@ class Settings(BaseSettings):
             "google": self.google_api_key,
             "gemini": self.google_api_key,
             "deepseek": self.deepseek_api_key,
+            # Ollama is usually local and does not require an API key.
+            "ollama": self.ollama_api_key or "ollama-local",
         }
         return key_mapping.get(provider.lower())
-    
-    def has_search_capability(self) -> bool:
-        """
-        Check if any search API is configured
-        
-        Returns:
-            bool: True if at least one search API key is set, else False
-        """
-        return bool(self.serper_api_key or self.tavily_api_key)
 
 
 # Global settings instance
