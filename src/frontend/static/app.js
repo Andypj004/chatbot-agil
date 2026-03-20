@@ -69,6 +69,9 @@ function SourceReferences({ sources = [] }) {
 }
 
 function App() {
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [helpMenuOpen, setHelpMenuOpen] = useState(false);
+
   const [apiBase, setApiBase] = useState(localStorage.getItem("apiBase") || DEFAULT_API_BASE);
   const [theme, setTheme] = useState(localStorage.getItem("theme") || "dark");
 
@@ -79,7 +82,7 @@ function App() {
 
   const [temperature, setTemperature] = useState(0.7);
   const [maxTokens, setMaxTokens] = useState(2000);
-  const [useRag, setUseRag] = useState(true);
+  const useRag = true;
 
   const [sessions, setSessions] = useState([]);
   const [sessionSearch, setSessionSearch] = useState("");
@@ -100,9 +103,31 @@ function App() {
 
   const fileInputRef = useRef(null);
   const chatViewportRef = useRef(null);
+  const shouldStickToBottomRef = useRef(true);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
 
   const modelsForCurrentProvider = useMemo(() => modelsByProvider[provider] || [], [modelsByProvider, provider]);
   const activeSession = useMemo(() => sessions.find((item) => item.session_id === sessionId) || null, [sessions, sessionId]);
+  const hasMessages = messages.length > 0;
+
+  const scrollToConversationBottom = () => {
+    if (!chatViewportRef.current) {
+      return;
+    }
+    chatViewportRef.current.scrollTop = chatViewportRef.current.scrollHeight;
+  };
+
+  const updateScrollState = () => {
+    const viewport = chatViewportRef.current;
+    if (!viewport) {
+      return;
+    }
+
+    const distanceToBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+    const isNearBottom = distanceToBottom < 44;
+    shouldStickToBottomRef.current = isNearBottom;
+    setShowScrollToBottom(!isNearBottom && hasMessages);
+  };
 
   const request = async (path, options = {}) => {
     const response = await fetch(`${apiBase}${path}`, options);
@@ -184,6 +209,7 @@ function App() {
     setSessionId(null);
     localStorage.removeItem("sessionId");
     setMessages([]);
+    setHelpMenuOpen(false);
   };
 
   const uploadDocument = async (file) => {
@@ -389,6 +415,7 @@ function App() {
     setMessages((current) => [...current, userMessage, assistantPlaceholder]);
     setInput("");
     setIsSending(true);
+    shouldStickToBottomRef.current = true;
 
     try {
       await streamChat(payload, assistantIndex);
@@ -440,111 +467,155 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (chatViewportRef.current) {
-      chatViewportRef.current.scrollTop = chatViewportRef.current.scrollHeight;
+    if (shouldStickToBottomRef.current) {
+      scrollToConversationBottom();
     }
+    updateScrollState();
   }, [messages]);
+
+  useEffect(() => {
+    updateScrollState();
+  }, [hasMessages]);
 
   return (
     <div className="app-shell">
-      <aside className="history-sidebar">
+      <aside className={`history-sidebar ${sidebarOpen ? "" : "collapsed"}`}>
         <div className="sidebar-top">
-          <h1>Agile Chat</h1>
-          <button className="ghost-btn" onClick={createNewConversation}>Nueva charla</button>
+          <div className="sidebar-header-row">
+            <button className="sidebar-toggle" onClick={() => { setSidebarOpen((prev) => !prev); setHelpMenuOpen(false); }}>
+              {sidebarOpen ? "☰" : "☷"}
+            </button>
+            {sidebarOpen && <h1>Menu</h1>}
+          </div>
+          {sidebarOpen && <button className="new-chat-btn" onClick={createNewConversation}>Nueva conversacion</button>}
         </div>
 
-        <input
-          className="search-input"
-          placeholder="Buscar historial"
-          value={sessionSearch}
-          onChange={(event) => setSessionSearch(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              loadSessions(sessionSearch).catch((error) => notify(error.message, "error"));
-            }
-          }}
-        />
+        {sidebarOpen && (
+          <input
+            className="search-input"
+            placeholder="Buscar historial"
+            value={sessionSearch}
+            onChange={(event) => setSessionSearch(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                loadSessions(sessionSearch).catch((error) => notify(error.message, "error"));
+              }
+            }}
+          />
+        )}
 
         <div className="session-list">
+          {sidebarOpen && <div className="section-title">Conversaciones</div>}
           {sessions.map((item) => (
             <div key={item.session_id} className={`session-item ${item.session_id === sessionId ? "active" : ""}`}>
-              <button className="session-select" onClick={() => loadHistory(item.session_id)}>
-                <strong>{getSessionLabel(item)}</strong>
-                <span>{item.last_message || "Sin mensajes"}</span>
-              </button>
-              <button className="session-rename" onClick={() => renameSession(item)} title="Renombrar charla">✎</button>
-              <button className="session-delete" onClick={() => deleteSession(item.session_id)}>x</button>
+              {sidebarOpen ? (
+                <>
+                  <button className="session-select" onClick={() => loadHistory(item.session_id)}>
+                    <strong>{truncateText(getSessionLabel(item), 32)}</strong>
+                  </button>
+                  <button className="session-rename" onClick={() => renameSession(item)} title="Renombrar charla">✎</button>
+                  <button className="session-delete" onClick={() => deleteSession(item.session_id)}>x</button>
+                </>
+              ) : (
+                <button className="session-dot" onClick={() => loadHistory(item.session_id)} title={getSessionLabel(item)}>●</button>
+              )}
             </div>
           ))}
         </div>
 
         <div className="sidebar-footer">
-          <p>Estado: {health.status}</p>
-          <p>RAG: {health.rag_status}</p>
-        </div>
-      </aside>
-
-      <main className="chat-main">
-        <header className="chat-main-header">
-          <div>
-            <h2>Agile Assistant</h2>
-            <p>Sesion: {activeSession ? getSessionLabel(activeSession) : (sessionId ? `Chat ${sessionId.slice(0, 8)}` : "Nueva conversacion")}</p>
+          <div className="sidebar-tools">
+            <button className="sidebar-menu-trigger" onClick={() => setHelpMenuOpen((prev) => !prev)} title="Configuracion y ayuda">
+              ⚙
+            </button>
+            {sidebarOpen && <span>Configuracion y ayuda</span>}
           </div>
 
-          <div className="header-controls">
-            <select value={provider} onChange={(event) => setProvider(event.target.value)}>
-              {(providers || []).map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-            <select value={model} onChange={(event) => setModel(event.target.value)}>
-              {(modelsForCurrentProvider || []).map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-            <button className="ghost-btn" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>{theme === "dark" ? "Claro" : "Oscuro"}</button>
-            <button className="ghost-btn" onClick={() => setSettingsOpen(true)}>Configuracion</button>
-            <button className="ghost-btn" onClick={() => { setDocsOpen(true); loadDocuments().catch(() => {}); }}>Documentos</button>
-          </div>
-        </header>
-
-        <section ref={chatViewportRef} className="chat-viewport">
-          {messages.length === 0 && (
-            <div className="empty-chat">
-              <h3>Inicia una conversacion</h3>
-              <p>Usa el selector de proveedor y modelo aqui. La configuracion avanzada esta en su propia seccion.</p>
+          {helpMenuOpen && (
+            <div className="sidebar-help-menu">
+              <button onClick={() => { setSettingsOpen(true); setHelpMenuOpen(false); }}>Configuracion avanzada</button>
+              <button onClick={() => { setDocsOpen(true); loadDocuments().catch(() => {}); setHelpMenuOpen(false); }}>Gestion de documentos</button>
+              <button onClick={() => { setTheme(theme === "dark" ? "light" : "dark"); setHelpMenuOpen(false); }}>
+                Tema: {theme === "dark" ? "Claro" : "Oscuro"}
+              </button>
             </div>
           )}
 
-          {messages.map((item, index) => (
-            <article key={`${item.role}-${index}`} className={`bubble ${item.role}`}>
-              <p>{item.content}</p>
-              <SourceReferences sources={item.sources} />
-            </article>
-          ))}
+          {sidebarOpen && (
+            <>
+              <p>Estado: {health.status}</p>
+              <p>RAG: {health.rag_status}</p>
+            </>
+          )}
+        </div>
+      </aside>
+
+      {!sidebarOpen && (
+        <button className="floating-new-chat" onClick={createNewConversation} title="Nueva charla">＋</button>
+      )}
+
+      <main className="chat-main">
+        <div className="app-brand">Chatbot Agil</div>
+
+        <section ref={chatViewportRef} className="chat-viewport" onScroll={updateScrollState}>
+          {!hasMessages && (
+            <div className="welcome-panel">
+              <div className="welcome-kicker">Hola</div>
+              <h2>¿Cómo puedo ayudarte hoy?</h2>
+            </div>
+          )}
+
+          {hasMessages && (
+            <div className="conversation-headline">
+              {activeSession ? getSessionLabel(activeSession) : "Nueva conversacion"}
+            </div>
+          )}
+
+          <div className="messages-stack">
+            {messages.map((item, index) => (
+              <article key={`${item.role}-${index}`} className={`bubble ${item.role}`}>
+                <p>{item.content}</p>
+                <SourceReferences sources={item.sources} />
+              </article>
+            ))}
+          </div>
         </section>
 
         <footer className="chat-input-area">
-          <textarea
-            rows={2}
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            placeholder="Escribe tu mensaje sobre metodologias agiles..."
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                sendMessage();
-              }
-            }}
-          />
-
-          <div className="input-actions">
-            <label className="checkbox-row">
-              <input type="checkbox" checked={useRag} onChange={(event) => setUseRag(event.target.checked)} />
-              <span>RAG</span>
-            </label>
-
+          <div className="input-shell">
             <input ref={fileInputRef} type="file" onChange={handleQuickUpload} style={{ display: "none" }} />
-            <button className="ghost-btn" onClick={handleQuickUploadClick}>Adjuntar</button>
-            <button className="primary-btn" onClick={sendMessage} disabled={isSending}>{isSending ? "Pensando..." : "Enviar"}</button>
+            <button className="input-icon" onClick={handleQuickUploadClick} title="Adjuntar">＋</button>
+
+            <textarea
+              rows={1}
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              placeholder="Pregunta a Agile Assistant"
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  sendMessage();
+                }
+              }}
+            />
+
+            <div className="input-toolbar">
+              <select value={provider} onChange={(event) => setProvider(event.target.value)}>
+                {(providers || []).map((item) => <option key={item} value={item}>{item}</option>)}
+              </select>
+              <select value={model} onChange={(event) => setModel(event.target.value)}>
+                {(modelsForCurrentProvider || []).map((item) => <option key={item} value={item}>{item}</option>)}
+              </select>
+              <button className="primary-btn" onClick={sendMessage} disabled={isSending}>{isSending ? "Pensando..." : "Enviar"}</button>
+            </div>
           </div>
         </footer>
+
+        {showScrollToBottom && (
+          <button className="scroll-bottom-btn" onClick={scrollToConversationBottom} title="Ir al final">
+            Ir al final
+          </button>
+        )}
       </main>
 
       {alert && <div className={`alert ${alert.type}`}>{alert.message}</div>}
