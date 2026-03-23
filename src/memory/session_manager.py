@@ -187,9 +187,13 @@ class SessionManager:
         params: List[Any] = []
 
         if query:
-            sql += " WHERE s.session_id LIKE ? OR EXISTS (SELECT 1 FROM messages sm WHERE sm.session_id = s.session_id AND sm.text LIKE ?)"
+            sql += (
+                " WHERE s.session_id LIKE ?"
+                " OR s.title LIKE ?"
+                " OR EXISTS (SELECT 1 FROM messages sm WHERE sm.session_id = s.session_id AND sm.text LIKE ?)"
+            )
             q = f"%{query}%"
-            params.extend([q, q])
+            params.extend([q, q, q])
 
         sql += " GROUP BY s.session_id ORDER BY s.updated_at DESC LIMIT ?"
         params.append(limit)
@@ -208,6 +212,47 @@ class SessionManager:
             }
             for row in rows
         ]
+
+    def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT session_id, title, created_at, updated_at
+                FROM sessions
+                WHERE session_id = ?
+                """,
+                (session_id,),
+            ).fetchone()
+
+        if not row:
+            return None
+
+        return {
+            "session_id": row["session_id"],
+            "title": row["title"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    def update_session_title(self, session_id: str, title: str) -> bool:
+        now = self._now_iso()
+        normalized_title = title.strip()
+        if not normalized_title:
+            return False
+
+        with self._lock:
+            with self._connect() as conn:
+                cursor = conn.execute(
+                    """
+                    UPDATE sessions
+                    SET title = ?, updated_at = ?
+                    WHERE session_id = ?
+                    """,
+                    (normalized_title, now, session_id),
+                )
+                conn.commit()
+
+        return cursor.rowcount > 0
 
     def get_message_count(self, session_id: str) -> int:
         with self._connect() as conn:

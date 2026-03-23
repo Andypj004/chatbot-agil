@@ -2,8 +2,76 @@ const { useEffect, useMemo, useRef, useState } = React;
 
 const DEFAULT_API_BASE = `${window.location.origin}/api/v1`;
 const DEFAULT_SESSION = localStorage.getItem("sessionId") || null;
+const MAX_SESSION_LABEL_LENGTH = 56;
+
+function truncateText(text, max = MAX_SESSION_LABEL_LENGTH) {
+  const compact = (text || "").trim();
+  if (compact.length <= max) {
+    return compact;
+  }
+  return `${compact.slice(0, max).trim()}...`;
+}
+
+function getSessionLabel(session) {
+  if (!session) {
+    return "Nueva conversacion";
+  }
+
+  const title = truncateText(session.title || "");
+  if (title) {
+    return title;
+  }
+
+  const fallback = truncateText(session.last_message || "", 42);
+  if (fallback) {
+    return fallback;
+  }
+
+  return `Chat ${String(session.session_id || "").slice(0, 8)}`;
+}
+
+function SourceReferences({ sources = [] }) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  if (!sources.length) {
+    return null;
+  }
+
+  return (
+    <div className="sources-block">
+      <button className="sources-toggle" onClick={() => setIsOpen((value) => !value)}>
+        <span>{isOpen ? "Ocultar" : "Ver"} fuentes</span>
+        <span className="sources-count">{sources.length}</span>
+      </button>
+
+      {isOpen && (
+        <div className="sources-panel">
+          {sources.map((source, sourceIndex) => {
+            const sourceTitle = source.filename || source.source || "Documento";
+            const excerpt = source.excerpt || "Sin extracto disponible.";
+            const sourceHint = source.source || source.document_id || "Referencia";
+
+            return (
+              <article key={`${sourceTitle}-${sourceIndex}`} className="source-card">
+                <div className="source-card-head">
+                  <strong>{sourceTitle}</strong>
+                  <span className="source-pill">{sourceIndex + 1}</span>
+                </div>
+                <p className="source-meta">{sourceHint}</p>
+                <p className="source-excerpt">{excerpt}</p>
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function App() {
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [helpMenuOpen, setHelpMenuOpen] = useState(false);
+
   const [apiBase, setApiBase] = useState(localStorage.getItem("apiBase") || DEFAULT_API_BASE);
   const [theme, setTheme] = useState(localStorage.getItem("theme") || "dark");
 
@@ -14,7 +82,7 @@ function App() {
 
   const [temperature, setTemperature] = useState(0.7);
   const [maxTokens, setMaxTokens] = useState(2000);
-  const [useRag, setUseRag] = useState(true);
+  const useRag = true;
 
   const [sessions, setSessions] = useState([]);
   const [sessionSearch, setSessionSearch] = useState("");
@@ -35,8 +103,31 @@ function App() {
 
   const fileInputRef = useRef(null);
   const chatViewportRef = useRef(null);
+  const shouldStickToBottomRef = useRef(true);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
 
   const modelsForCurrentProvider = useMemo(() => modelsByProvider[provider] || [], [modelsByProvider, provider]);
+  const activeSession = useMemo(() => sessions.find((item) => item.session_id === sessionId) || null, [sessions, sessionId]);
+  const hasMessages = messages.length > 0;
+
+  const scrollToConversationBottom = () => {
+    if (!chatViewportRef.current) {
+      return;
+    }
+    chatViewportRef.current.scrollTop = chatViewportRef.current.scrollHeight;
+  };
+
+  const updateScrollState = () => {
+    const viewport = chatViewportRef.current;
+    if (!viewport) {
+      return;
+    }
+
+    const distanceToBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+    const isNearBottom = distanceToBottom < 44;
+    shouldStickToBottomRef.current = isNearBottom;
+    setShowScrollToBottom(!isNearBottom && hasMessages);
+  };
 
   const request = async (path, options = {}) => {
     const response = await fetch(`${apiBase}${path}`, options);
@@ -118,6 +209,7 @@ function App() {
     setSessionId(null);
     localStorage.removeItem("sessionId");
     setMessages([]);
+    setHelpMenuOpen(false);
   };
 
   const uploadDocument = async (file) => {
@@ -191,6 +283,38 @@ function App() {
       createNewConversation();
     }
     await loadSessions(sessionSearch);
+  };
+
+  const renameSession = async (session) => {
+    const currentLabel = session.title || getSessionLabel(session);
+    const nextTitle = window.prompt("Nuevo titulo para esta conversacion:", currentLabel);
+    if (nextTitle === null) {
+      return;
+    }
+
+    const cleanedTitle = nextTitle.trim();
+    if (!cleanedTitle) {
+      notify("El titulo no puede estar vacio", "error");
+      return;
+    }
+
+    if (cleanedTitle === session.title) {
+      return;
+    }
+
+    await request(`/sessions/${encodeURIComponent(session.session_id)}/title`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: cleanedTitle })
+    });
+
+    setSessions((current) => current.map((item) => (
+      item.session_id === session.session_id
+        ? { ...item, title: cleanedTitle }
+        : item
+    )));
+
+    notify("Titulo actualizado", "ok");
   };
 
   const streamChat = async (payload, assistantIndex) => {
@@ -291,6 +415,7 @@ function App() {
     setMessages((current) => [...current, userMessage, assistantPlaceholder]);
     setInput("");
     setIsSending(true);
+    shouldStickToBottomRef.current = true;
 
     try {
       await streamChat(payload, assistantIndex);
@@ -342,120 +467,155 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (chatViewportRef.current) {
-      chatViewportRef.current.scrollTop = chatViewportRef.current.scrollHeight;
+    if (shouldStickToBottomRef.current) {
+      scrollToConversationBottom();
     }
+    updateScrollState();
   }, [messages]);
+
+  useEffect(() => {
+    updateScrollState();
+  }, [hasMessages]);
 
   return (
     <div className="app-shell">
-      <aside className="history-sidebar">
+      <aside className={`history-sidebar ${sidebarOpen ? "" : "collapsed"}`}>
         <div className="sidebar-top">
-          <h1>Agile Chat</h1>
-          <button className="ghost-btn" onClick={createNewConversation}>Nueva charla</button>
+          <div className="sidebar-header-row">
+            <button className="sidebar-toggle" onClick={() => { setSidebarOpen((prev) => !prev); setHelpMenuOpen(false); }}>
+              {sidebarOpen ? "☰" : "☷"}
+            </button>
+            {sidebarOpen && <h1>Menu</h1>}
+          </div>
+          {sidebarOpen && <button className="new-chat-btn" onClick={createNewConversation}>Nueva conversacion</button>}
         </div>
 
-        <input
-          className="search-input"
-          placeholder="Buscar historial"
-          value={sessionSearch}
-          onChange={(event) => setSessionSearch(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              loadSessions(sessionSearch).catch((error) => notify(error.message, "error"));
-            }
-          }}
-        />
+        {sidebarOpen && (
+          <input
+            className="search-input"
+            placeholder="Buscar historial"
+            value={sessionSearch}
+            onChange={(event) => setSessionSearch(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                loadSessions(sessionSearch).catch((error) => notify(error.message, "error"));
+              }
+            }}
+          />
+        )}
 
         <div className="session-list">
+          {sidebarOpen && <div className="section-title">Conversaciones</div>}
           {sessions.map((item) => (
             <div key={item.session_id} className={`session-item ${item.session_id === sessionId ? "active" : ""}`}>
-              <button className="session-select" onClick={() => loadHistory(item.session_id)}>
-                <strong>{item.session_id.slice(0, 10)}</strong>
-                <span>{item.last_message || "Sin mensajes"}</span>
-              </button>
-              <button className="session-delete" onClick={() => deleteSession(item.session_id)}>x</button>
+              {sidebarOpen ? (
+                <>
+                  <button className="session-select" onClick={() => loadHistory(item.session_id)}>
+                    <strong>{truncateText(getSessionLabel(item), 32)}</strong>
+                  </button>
+                  <button className="session-rename" onClick={() => renameSession(item)} title="Renombrar charla">✎</button>
+                  <button className="session-delete" onClick={() => deleteSession(item.session_id)}>x</button>
+                </>
+              ) : (
+                <button className="session-dot" onClick={() => loadHistory(item.session_id)} title={getSessionLabel(item)}>●</button>
+              )}
             </div>
           ))}
         </div>
 
         <div className="sidebar-footer">
-          <p>Estado: {health.status}</p>
-          <p>RAG: {health.rag_status}</p>
-        </div>
-      </aside>
-
-      <main className="chat-main">
-        <header className="chat-main-header">
-          <div>
-            <h2>Asistente Agile</h2>
-            <p>Sesion: {sessionId || "nueva"}</p>
+          <div className="sidebar-tools">
+            <button className="sidebar-menu-trigger" onClick={() => setHelpMenuOpen((prev) => !prev)} title="Configuracion y ayuda">
+              ⚙
+            </button>
+            {sidebarOpen && <span>Configuracion y ayuda</span>}
           </div>
 
-          <div className="header-controls">
-            <select value={provider} onChange={(event) => setProvider(event.target.value)}>
-              {(providers || []).map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-            <select value={model} onChange={(event) => setModel(event.target.value)}>
-              {(modelsForCurrentProvider || []).map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-            <button className="ghost-btn" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>{theme === "dark" ? "Claro" : "Oscuro"}</button>
-            <button className="ghost-btn" onClick={() => setSettingsOpen(true)}>Configuracion</button>
-            <button className="ghost-btn" onClick={() => { setDocsOpen(true); loadDocuments().catch(() => {}); }}>Documentos</button>
-          </div>
-        </header>
-
-        <section ref={chatViewportRef} className="chat-viewport">
-          {messages.length === 0 && (
-            <div className="empty-chat">
-              <h3>Inicia una conversacion</h3>
-              <p>Usa el selector de proveedor y modelo aqui. La configuracion avanzada esta en su propia seccion.</p>
+          {helpMenuOpen && (
+            <div className="sidebar-help-menu">
+              <button onClick={() => { setSettingsOpen(true); setHelpMenuOpen(false); }}>Configuracion avanzada</button>
+              <button onClick={() => { setDocsOpen(true); loadDocuments().catch(() => {}); setHelpMenuOpen(false); }}>Gestion de documentos</button>
+              <button onClick={() => { setTheme(theme === "dark" ? "light" : "dark"); setHelpMenuOpen(false); }}>
+                Tema: {theme === "dark" ? "Claro" : "Oscuro"}
+              </button>
             </div>
           )}
 
-          {messages.map((item, index) => (
-            <article key={`${item.role}-${index}`} className={`bubble ${item.role}`}>
-              <p>{item.content}</p>
-              {item.sources && item.sources.length > 0 && (
-                <div className="sources">
-                  <strong>Fuentes</strong>
-                  {item.sources.map((source, sourceIndex) => (
-                    <div key={`${source.filename || "source"}-${sourceIndex}`} className="source-item">
-                      <span>{source.filename || source.source || "Documento"}</span>
-                      <small>{source.excerpt}</small>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </article>
-          ))}
+          {sidebarOpen && (
+            <>
+              <p>Estado: {health.status}</p>
+              <p>RAG: {health.rag_status}</p>
+            </>
+          )}
+        </div>
+      </aside>
+
+      {!sidebarOpen && (
+        <button className="floating-new-chat" onClick={createNewConversation} title="Nueva charla">＋</button>
+      )}
+
+      <main className="chat-main">
+        <div className="app-brand">Chatbot Agil</div>
+
+        <section ref={chatViewportRef} className="chat-viewport" onScroll={updateScrollState}>
+          {!hasMessages && (
+            <div className="welcome-panel">
+              <div className="welcome-kicker">Hola</div>
+              <h2>¿Cómo puedo ayudarte hoy?</h2>
+            </div>
+          )}
+
+          {hasMessages && (
+            <div className="conversation-headline">
+              {activeSession ? getSessionLabel(activeSession) : "Nueva conversacion"}
+            </div>
+          )}
+
+          <div className="messages-stack">
+            {messages.map((item, index) => (
+              <article key={`${item.role}-${index}`} className={`bubble ${item.role}`}>
+                <p>{item.content}</p>
+                <SourceReferences sources={item.sources} />
+              </article>
+            ))}
+          </div>
         </section>
 
         <footer className="chat-input-area">
-          <textarea
-            rows={2}
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            placeholder="Escribe tu mensaje sobre metodologias agiles..."
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                sendMessage();
-              }
-            }}
-          />
-
-          <div className="input-actions">
-            <label className="checkbox-row">
-              <input type="checkbox" checked={useRag} onChange={(event) => setUseRag(event.target.checked)} />
-              <span>RAG</span>
-            </label>
-
+          <div className="input-shell">
             <input ref={fileInputRef} type="file" onChange={handleQuickUpload} style={{ display: "none" }} />
-            <button className="ghost-btn" onClick={handleQuickUploadClick}>Adjuntar</button>
-            <button className="primary-btn" onClick={sendMessage} disabled={isSending}>{isSending ? "Pensando..." : "Enviar"}</button>
+            <button className="input-icon" onClick={handleQuickUploadClick} title="Adjuntar">＋</button>
+
+            <textarea
+              rows={1}
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              placeholder="Pregunta a Agile Assistant"
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  sendMessage();
+                }
+              }}
+            />
+
+            <div className="input-toolbar">
+              <select value={provider} onChange={(event) => setProvider(event.target.value)}>
+                {(providers || []).map((item) => <option key={item} value={item}>{item}</option>)}
+              </select>
+              <select value={model} onChange={(event) => setModel(event.target.value)}>
+                {(modelsForCurrentProvider || []).map((item) => <option key={item} value={item}>{item}</option>)}
+              </select>
+              <button className="primary-btn" onClick={sendMessage} disabled={isSending}>{isSending ? "Pensando..." : "Enviar"}</button>
+            </div>
           </div>
         </footer>
+
+        {showScrollToBottom && (
+          <button className="scroll-bottom-btn" onClick={scrollToConversationBottom} title="Ir al final">
+            Ir al final
+          </button>
+        )}
       </main>
 
       {alert && <div className={`alert ${alert.type}`}>{alert.message}</div>}
@@ -489,9 +649,21 @@ function App() {
 
             <div className="doc-list">
               {documents.length === 0 ? (
-                <p>No hay metadatos detallados en el backend actual.</p>
+                <p>No hay documentos indexados para mostrar.</p>
               ) : (
-                documents.map((item, index) => <div key={`${item.filename}-${index}`}>{item.filename}</div>)
+                documents.map((item, index) => {
+                  const documentId = item.file_hash || item.document_id || item.id || "Sin ID";
+                  return (
+                    <article key={`${item.filename}-${index}`} className="doc-entry">
+                      <div className="doc-entry-head">
+                        <strong>{item.filename || "Documento sin nombre"}</strong>
+                        <span className="doc-type-pill">{(item.file_type || "unknown").toUpperCase()}</span>
+                      </div>
+                      <p><span className="doc-label">Origen:</span> {item.source || "Sin origen"}</p>
+                      <p><span className="doc-label">ID:</span> <code>{documentId}</code></p>
+                    </article>
+                  );
+                })
               )}
             </div>
 

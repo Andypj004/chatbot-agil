@@ -66,6 +66,12 @@ class SessionSummary(APIBaseModel):
     last_message: str
 
 
+class SessionTitleUpdateRequest(APIBaseModel):
+    """Request model for updating a session title."""
+
+    title: str = Field(..., min_length=1, max_length=80)
+
+
 class SessionListResponse(APIBaseModel):
     """Response model for listing sessions."""
 

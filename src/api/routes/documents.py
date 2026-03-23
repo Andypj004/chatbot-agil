@@ -16,6 +16,46 @@ logger = get_logger()
 router = APIRouter(prefix="/documents", tags=["documents"])
 
 
+def _list_uploaded_files_fallback() -> List[DocumentInfo]:
+    """Fallback metadata list from persisted uploaded files."""
+    uploads_dir = Path("data/uploads")
+    if not uploads_dir.exists():
+        return []
+
+    items: List[DocumentInfo] = []
+    for file_path in sorted(uploads_dir.glob("*")):
+        if not file_path.is_file():
+            continue
+        if file_path.name.startswith("."):
+            continue
+
+        file_type = file_path.suffix.lower().lstrip(".") or "unknown"
+        items.append(
+            DocumentInfo(
+                filename=file_path.name,
+                file_type=file_type,
+                source=str(file_path),
+                file_hash=file_path.stem,
+            )
+        )
+
+    return items
+
+
+def _clear_uploaded_files() -> None:
+    """Remove uploaded files from disk, keeping hidden sentinel files."""
+    uploads_dir = Path("data/uploads")
+    if not uploads_dir.exists():
+        return
+
+    for file_path in uploads_dir.glob("*"):
+        if not file_path.is_file():
+            continue
+        if file_path.name.startswith("."):
+            continue
+        file_path.unlink(missing_ok=True)
+
+
 @router.post("/upload", response_model=DocumentUploadResponse, summary="Upload a document")
 async def upload_document(
     file: UploadFile = File(..., description="Document file to upload"),
@@ -89,14 +129,17 @@ async def list_documents(
     logger.info("Listing documents")
     
     try:
-        # Get collection count
+        # Chunk count in vector store (used by UI summary).
         total_docs = vector_store.get_collection_count()
-        
-        # For now, return summary info
-        # In production, you might want to maintain a separate metadata store
+
+        # Metadata list deduplicated at file-level.
+        documents = [DocumentInfo(**item) for item in vector_store.list_indexed_documents()]
+        if not documents:
+            documents = _list_uploaded_files_fallback()
+
         return DocumentListResponse(
             total_documents=total_docs,
-            documents=[]
+            documents=documents,
         )
         
     except Exception as e:
@@ -162,6 +205,7 @@ async def clear_documents(
     
     try:
         success = vector_store.clear_collection()
+        _clear_uploaded_files()
         
         if success:
             return {"message": "All documents cleared successfully"}
