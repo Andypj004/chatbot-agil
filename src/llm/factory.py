@@ -28,7 +28,7 @@ class LLMFactory:
             "gemini-pro",
         ],
         "deepseek": ["deepseek-chat", "deepseek-reasoner"],
-        "ollama": ["llama3.2:3b", "qwen2.5:3b", "phi3:mini"],
+        "ollama": ["llama3.2:3b", "qwen2.5:3b", "phi3:mini", "llava:7b", "llava:13b", "gemma3:4b"],
     }
     
     @classmethod

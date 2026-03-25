@@ -68,6 +68,28 @@ class SessionManager:
                 ON sessions (updated_at)
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS session_documents (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    document_id TEXT NOT NULL,
+                    filename TEXT,
+                    source TEXT,
+                    file_type TEXT,
+                    file_hash TEXT,
+                    uploaded_at TEXT NOT NULL,
+                    UNIQUE(session_id, document_id),
+                    FOREIGN KEY(session_id) REFERENCES sessions(session_id)
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_session_documents_session
+                ON session_documents (session_id, uploaded_at)
+                """
+            )
             conn.commit()
 
     def create_session(self, session_id: str, title: Optional[str] = None) -> None:
@@ -265,6 +287,127 @@ class SessionManager:
     def clear_session(self, session_id: str) -> None:
         with self._lock:
             with self._connect() as conn:
+                conn.execute("DELETE FROM session_documents WHERE session_id = ?", (session_id,))
                 conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
                 conn.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
                 conn.commit()
+
+    def add_session_document(
+        self,
+        session_id: str,
+        document_id: str,
+        filename: str,
+        source: str,
+        file_type: str,
+        file_hash: str,
+    ) -> None:
+        now = self._now_iso()
+        with self._lock:
+            with self._connect() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO sessions (session_id, title, created_at, updated_at)
+                    VALUES (?, NULL, ?, ?)
+                    ON CONFLICT(session_id) DO NOTHING
+                    """,
+                    (session_id, now, now),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO session_documents
+                    (session_id, document_id, filename, source, file_type, file_hash, uploaded_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(session_id, document_id)
+                    DO UPDATE SET
+                        filename = excluded.filename,
+                        source = excluded.source,
+                        file_type = excluded.file_type,
+                        file_hash = excluded.file_hash,
+                        uploaded_at = excluded.uploaded_at
+                    """,
+                    (session_id, document_id, filename, source, file_type, file_hash, now),
+                )
+                conn.execute(
+                    "UPDATE sessions SET updated_at = ? WHERE session_id = ?",
+                    (now, session_id),
+                )
+                conn.commit()
+
+    def list_session_documents(self, session_id: str) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT document_id, filename, source, file_type, file_hash, uploaded_at
+                FROM session_documents
+                WHERE session_id = ?
+                ORDER BY uploaded_at DESC
+                """,
+                (session_id,),
+            ).fetchall()
+
+        return [
+            {
+                "document_id": row["document_id"],
+                "filename": row["filename"],
+                "source": row["source"],
+                "file_type": row["file_type"],
+                "file_hash": row["file_hash"],
+                "scope": "session_chat",
+                "session_id": session_id,
+                "uploaded_at": row["uploaded_at"],
+            }
+            for row in rows
+        ]
+
+    def get_session_documents_by_ids(self, session_id: str, document_ids: List[str]) -> List[Dict[str, Any]]:
+        if not document_ids:
+            return self.list_session_documents(session_id)
+
+        placeholders = ",".join(["?"] * len(document_ids))
+        query = f"""
+            SELECT document_id, filename, source, file_type, file_hash, uploaded_at
+            FROM session_documents
+            WHERE session_id = ? AND document_id IN ({placeholders})
+            ORDER BY uploaded_at DESC
+        """
+        params: List[Any] = [session_id, *document_ids]
+
+        with self._connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+
+        return [
+            {
+                "document_id": row["document_id"],
+                "filename": row["filename"],
+                "source": row["source"],
+                "file_type": row["file_type"],
+                "file_hash": row["file_hash"],
+                "scope": "session_chat",
+                "session_id": session_id,
+                "uploaded_at": row["uploaded_at"],
+            }
+            for row in rows
+        ]
+
+    def remove_session_document(self, session_id: str, document_id: str) -> bool:
+        with self._lock:
+            with self._connect() as conn:
+                cursor = conn.execute(
+                    """
+                    DELETE FROM session_documents
+                    WHERE session_id = ? AND document_id = ?
+                    """,
+                    (session_id, document_id),
+                )
+                conn.commit()
+        return cursor.rowcount > 0
+
+    def clear_session_documents(self, session_id: str) -> int:
+        with self._lock:
+            with self._connect() as conn:
+                cursor = conn.execute(
+                    "DELETE FROM session_documents WHERE session_id = ?",
+                    (session_id,),
+                )
+                conn.commit()
+        return cursor.rowcount

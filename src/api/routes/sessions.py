@@ -1,8 +1,10 @@
 """Conversation session and history endpoints."""
 
+from pathlib import Path
+
 from fastapi import APIRouter, HTTPException, Query, status
 
-from src.api.dependencies import get_session_manager
+from src.api.dependencies import get_session_manager, get_vector_store
 from src.api.models import (
     SessionHistoryResponse,
     SessionListResponse,
@@ -56,6 +58,21 @@ async def get_session_history(
 async def delete_session(session_id: str):
     """Delete one conversation session and all of its messages."""
     manager = get_session_manager()
+    vector_store = get_vector_store()
+    vector_store.delete_by_metadata({"scope": "session_chat", "session_id": session_id})
+
+    session_docs = manager.list_session_documents(session_id)
+    for item in session_docs:
+        source = item.get("source")
+        if source:
+            Path(source).unlink(missing_ok=True)
+
+    uploads_dir = Path(f"data/uploads/sessions/{session_id}")
+    if uploads_dir.exists():
+        for file_path in uploads_dir.glob("*"):
+            if file_path.is_file() and not file_path.name.startswith("."):
+                file_path.unlink(missing_ok=True)
+
     manager.clear_session(session_id)
     return {"message": f"Session {session_id} deleted successfully"}
 

@@ -92,7 +92,8 @@ Respuesta en español:"""
         self,
         query: str,
         k: Optional[int] = None,
-        filter: Optional[Dict[str, Any]] = None
+        filter: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None,
     ) -> List[Document]:
         """Retrieve relevant documents for a query
         
@@ -107,13 +108,83 @@ Respuesta en español:"""
         k = k or self.top_k
         logger.info(f"Retrieving documents for query: '{query}'")
         
-        documents = self.vector_store.similarity_search(
-            query=query,
-            k=k,
-            filter=filter
+        if filter is not None:
+            return self.vector_store.similarity_search(
+                query=query,
+                k=k,
+                filter=filter,
+            )
+
+        return self._retrieve_combined_documents(query=query, k=k, session_id=session_id)
+
+    @staticmethod
+    def _normalize_scope(metadata: Dict[str, Any]) -> str:
+        scope = metadata.get("scope")
+        if scope:
+            return str(scope)
+        return "global_rag"
+
+    @staticmethod
+    def _doc_key(doc: Document) -> str:
+        metadata = doc.metadata or {}
+        return "|".join(
+            [
+                str(metadata.get("file_hash") or ""),
+                str(metadata.get("chunk_id") or ""),
+                str(metadata.get("source") or ""),
+                str(metadata.get("filename") or ""),
+            ]
         )
-        
-        return documents
+
+    def _retrieve_combined_documents(self, query: str, k: int, session_id: Optional[str]) -> List[Document]:
+        """Retrieve global docs always, plus session docs when session_id is available."""
+        global_quota = max(1, int(round(k * 0.6)))
+        session_quota = max(0, k - global_quota)
+
+        global_docs = self.vector_store.similarity_search(
+            query=query,
+            k=max(global_quota, 1),
+            filter={"scope": "global_rag"},
+        )
+
+        # Backward compatibility for legacy chunks without explicit scope metadata.
+        if len(global_docs) < global_quota:
+            legacy_candidates = self.vector_store.similarity_search(query=query, k=max(k * 4, 12))
+            for doc in legacy_candidates:
+                metadata = doc.metadata or {}
+                if self._normalize_scope(metadata) == "session_chat":
+                    continue
+                global_docs.append(doc)
+                if len(global_docs) >= global_quota:
+                    break
+
+        session_docs: List[Document] = []
+        if session_id and session_quota > 0:
+            candidates = self.vector_store.similarity_search(
+                query=query,
+                k=max(session_quota * 2, session_quota),
+                filter={"session_id": session_id},
+            )
+            for doc in candidates:
+                metadata = doc.metadata or {}
+                if self._normalize_scope(metadata) != "session_chat":
+                    continue
+                session_docs.append(doc)
+                if len(session_docs) >= session_quota:
+                    break
+
+        merged: List[Document] = []
+        seen = set()
+        for doc in [*global_docs, *session_docs]:
+            key = self._doc_key(doc)
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(doc)
+            if len(merged) >= k:
+                break
+
+        return merged
     
     def retrieve_with_scores(
         self,
@@ -147,6 +218,7 @@ Respuesta en español:"""
         question: str,
         k: Optional[int] = None,
         filter: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None,
         return_sources: bool = False
     ) -> Dict[str, Any]:
         """Query the RAG system
@@ -163,7 +235,7 @@ Respuesta en español:"""
         logger.info(f"Processing RAG query: '{question}'")
         
         # Retrieve relevant documents
-        documents = self.retrieve_documents(query=question, k=k, filter=filter)
+        documents = self.retrieve_documents(query=question, k=k, filter=filter, session_id=session_id)
         
         if not documents:
             logger.warning("No relevant documents found")

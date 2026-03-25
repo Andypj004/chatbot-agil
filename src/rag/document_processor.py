@@ -47,7 +47,12 @@ class DocumentProcessor:
             f"chunk_overlap={self.chunk_overlap}"
         )
     
-    def load_document(self, file_path: str) -> List[Document]:
+    def load_document(
+        self,
+        file_path: str,
+        scope: str = "global_rag",
+        session_id: Optional[str] = None,
+    ) -> List[Document]:
         """Load a document from file
         
         Args:
@@ -67,6 +72,13 @@ class DocumentProcessor:
         file_extension = path.suffix.lower()
         
         logger.info(f"Loading document: {file_path} (type: {file_extension})")
+        metadata = self._build_file_metadata(
+            file_path=file_path,
+            filename=path.name,
+            file_extension=file_extension,
+            scope=scope,
+            session_id=session_id,
+        )
         
         try:
             if file_extension == ".pdf":
@@ -91,12 +103,7 @@ class DocumentProcessor:
             
             # Add metadata
             for doc in documents:
-                doc.metadata.update({
-                    "source": file_path,
-                    "filename": path.name,
-                    "file_type": file_extension[1:],
-                    "file_hash": self._calculate_file_hash(file_path)
-                })
+                doc.metadata.update(metadata)
             
             logger.info(f"Loaded {len(documents)} pages/sections from {path.name}")
             return documents
@@ -125,7 +132,12 @@ class DocumentProcessor:
         logger.info(f"Created {len(chunked_docs)} chunks")
         return chunked_docs
     
-    def process_file(self, file_path: str) -> List[Document]:
+    def process_file(
+        self,
+        file_path: str,
+        scope: str = "global_rag",
+        session_id: Optional[str] = None,
+    ) -> List[Document]:
         """Load and chunk a document file
         
         Args:
@@ -134,10 +146,10 @@ class DocumentProcessor:
         Returns:
             List of chunked Document objects
         """
-        documents = self.load_document(file_path)
+        documents = self.load_document(file_path, scope=scope, session_id=session_id)
         chunked_docs = self.chunk_documents(documents)
         return chunked_docs
-    
+
     def process_text(
         self,
         text: str,
@@ -180,3 +192,26 @@ class DocumentProcessor:
             for chunk in iter(lambda: f.read(4096), b""):
                 hash_md5.update(chunk)
         return hash_md5.hexdigest()
+
+    def _build_file_metadata(
+        self,
+        file_path: str,
+        filename: str,
+        file_extension: str,
+        scope: str,
+        session_id: Optional[str],
+    ) -> dict:
+        """Build Chroma-safe metadata (no None values)."""
+        metadata = {
+            "source": str(file_path),
+            "filename": str(filename),
+            "file_type": str(file_extension[1:]),
+            "file_hash": self._calculate_file_hash(file_path),
+            "scope": str(scope),
+        }
+
+        # Chroma metadata values must be scalar and cannot be None.
+        if session_id:
+            metadata["session_id"] = str(session_id)
+
+        return metadata
