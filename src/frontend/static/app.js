@@ -50,12 +50,16 @@ function SourceReferences({ sources = [] }) {
             const sourceTitle = source.filename || source.source || "Documento";
             const excerpt = source.excerpt || "Sin extracto disponible.";
             const sourceHint = source.source || source.document_id || "Referencia";
+            const scopeLabel = source.scope === "session_chat" ? "Sesion" : "Global";
 
             return (
               <article key={`${sourceTitle}-${sourceIndex}`} className="source-card">
                 <div className="source-card-head">
                   <strong>{sourceTitle}</strong>
-                  <span className="source-pill">{sourceIndex + 1}</span>
+                  <div className="source-card-pills">
+                    <span className="source-pill">{scopeLabel}</span>
+                    <span className="source-pill">{sourceIndex + 1}</span>
+                  </div>
                 </div>
                 <p className="source-meta">{sourceHint}</p>
                 <p className="source-excerpt">{excerpt}</p>
@@ -95,13 +99,17 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [docsOpen, setDocsOpen] = useState(false);
   const [documents, setDocuments] = useState([]);
+  const [sessionDocuments, setSessionDocuments] = useState([]);
+  const [isUploadingGlobalDocs, setIsUploadingGlobalDocs] = useState(false);
+  const [isUploadingSessionDocs, setIsUploadingSessionDocs] = useState(false);
   const [documentsSummary, setDocumentsSummary] = useState("No cargado");
   const [deleteDocId, setDeleteDocId] = useState("");
   const [health, setHealth] = useState({ status: "...", version: "-", rag_status: "-", vector_store_documents: 0 });
 
   const [alert, setAlert] = useState(null);
 
-  const fileInputRef = useRef(null);
+  const globalFileInputRef = useRef(null);
+  const sessionFileInputRef = useRef(null);
   const chatViewportRef = useRef(null);
   const shouldStickToBottomRef = useRef(true);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
@@ -203,16 +211,28 @@ function App() {
     setMessages(mapped);
     setSessionId(id);
     localStorage.setItem("sessionId", id);
+    await loadSessionDocuments(id);
   };
 
   const createNewConversation = () => {
     setSessionId(null);
     localStorage.removeItem("sessionId");
     setMessages([]);
+    setSessionDocuments([]);
     setHelpMenuOpen(false);
   };
 
-  const uploadDocument = async (file) => {
+  const ensureSessionContextId = () => {
+    if (sessionId) {
+      return sessionId;
+    }
+    const generatedId = window.crypto?.randomUUID?.() || `session-${Date.now()}`;
+    setSessionId(generatedId);
+    localStorage.setItem("sessionId", generatedId);
+    return generatedId;
+  };
+
+  const uploadGlobalDocument = async (file) => {
     const formData = new FormData();
     formData.append("file", file);
 
@@ -233,26 +253,91 @@ function App() {
     return response.json();
   };
 
-  const handleQuickUploadClick = () => {
-    if (fileInputRef.current) {
-      fileInputRef.current.click();
+  const uploadSessionDocument = async (targetSessionId, file) => {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const response = await fetch(`${apiBase}/documents/sessions/${encodeURIComponent(targetSessionId)}/upload`, {
+      method: "POST",
+      body: formData
+    });
+    if (!response.ok) {
+      let detail = `HTTP ${response.status}`;
+      try {
+        const data = await response.json();
+        detail = data.detail || JSON.stringify(data);
+      } catch (_) {
+        // Keep generic detail.
+      }
+      throw new Error(detail);
+    }
+    return response.json();
+  };
+
+  const handleGlobalUploadClick = () => {
+    if (isUploadingGlobalDocs) {
+      return;
+    }
+    if (globalFileInputRef.current) {
+      globalFileInputRef.current.click();
     }
   };
 
-  const handleQuickUpload = async (event) => {
-    const file = event.target.files?.[0];
-    if (!file) {
+  const handleGlobalUpload = async (event) => {
+    const files = Array.from(event.target.files || []);
+    if (!files.length) {
       return;
     }
+    setIsUploadingGlobalDocs(true);
     try {
-      const result = await uploadDocument(file);
-      notify(`Documento ${result.filename} cargado (${result.chunks_created} chunks)`, "ok");
+      const results = await Promise.all(files.map((file) => uploadGlobalDocument(file)));
+      notify(`Documentos globales cargados: ${results.length}`, "ok");
       await Promise.all([loadHealth(), loadDocuments()]);
     } catch (error) {
       notify(`Error al subir documento: ${error.message}`, "error");
     } finally {
+      setIsUploadingGlobalDocs(false);
       event.target.value = "";
     }
+  };
+
+  const handleSessionUploadClick = () => {
+    if (isUploadingSessionDocs) {
+      return;
+    }
+    if (sessionFileInputRef.current) {
+      sessionFileInputRef.current.click();
+    }
+  };
+
+  const handleSessionUpload = async (event) => {
+    const files = Array.from(event.target.files || []);
+    if (!files.length) {
+      return;
+    }
+
+    const targetSessionId = ensureSessionContextId();
+    setIsUploadingSessionDocs(true);
+    try {
+      await Promise.all(files.map((file) => uploadSessionDocument(targetSessionId, file)));
+      notify(`Adjuntos de sesion cargados: ${files.length}`, "ok");
+      await Promise.all([loadSessionDocuments(targetSessionId), loadSessions(sessionSearch)]);
+    } catch (error) {
+      notify(`Error al subir adjunto de sesion: ${error.message}`, "error");
+    } finally {
+      setIsUploadingSessionDocs(false);
+      event.target.value = "";
+    }
+  };
+
+  const loadSessionDocuments = async (targetSessionId) => {
+    if (!targetSessionId) {
+      setSessionDocuments([]);
+      return;
+    }
+
+    const data = await request(`/documents/sessions/${encodeURIComponent(targetSessionId)}`);
+    setSessionDocuments(data.documents || []);
   };
 
   const loadDocuments = async () => {
@@ -283,6 +368,35 @@ function App() {
       createNewConversation();
     }
     await loadSessions(sessionSearch);
+  };
+
+  const deleteSessionDocument = async (documentId) => {
+    if (!sessionId || !documentId) {
+      return;
+    }
+    await request(`/documents/sessions/${encodeURIComponent(sessionId)}/${encodeURIComponent(documentId)}`, {
+      method: "DELETE"
+    });
+    notify("Adjunto eliminado de la sesion", "ok");
+    await loadSessionDocuments(sessionId);
+  };
+
+  const clearSessionDocuments = async () => {
+    if (!sessionId) {
+      return;
+    }
+    await request(`/documents/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
+    notify("Adjuntos de sesion eliminados", "ok");
+    await loadSessionDocuments(sessionId);
+  };
+
+  const toggleHelpMenu = () => {
+    if (!sidebarOpen) {
+      setSidebarOpen(true);
+      setHelpMenuOpen(true);
+      return;
+    }
+    setHelpMenuOpen((prev) => !prev);
   };
 
   const renameSession = async (session) => {
@@ -391,6 +505,11 @@ function App() {
         return next;
       });
     }
+
+    const latestSessionId = finalPayload?.session_id || payload.session_id;
+    if (latestSessionId) {
+      await loadSessionDocuments(latestSessionId);
+    }
   };
 
   const sendMessage = async () => {
@@ -401,11 +520,12 @@ function App() {
 
     const payload = {
       message,
-      session_id: sessionId,
+      session_id: sessionId || ensureSessionContextId(),
       use_rag: useRag,
       llm_provider: provider || null,
       model_name: model || null,
-      temperature: Number(temperature)
+      temperature: Number(temperature),
+      session_document_ids: sessionDocuments.map((item) => item.document_id).filter(Boolean)
     };
 
     const userMessage = { role: "user", content: message, sources: [] };
@@ -467,6 +587,12 @@ function App() {
   }, []);
 
   useEffect(() => {
+    loadSessionDocuments(sessionId).catch(() => {
+      setSessionDocuments([]);
+    });
+  }, [sessionId]);
+
+  useEffect(() => {
     if (shouldStickToBottomRef.current) {
       scrollToConversationBottom();
     }
@@ -525,7 +651,7 @@ function App() {
 
         <div className="sidebar-footer">
           <div className="sidebar-tools">
-            <button className="sidebar-menu-trigger" onClick={() => setHelpMenuOpen((prev) => !prev)} title="Configuracion y ayuda">
+            <button className="sidebar-menu-trigger" onClick={toggleHelpMenu} title="Configuracion y ayuda">
               ⚙
             </button>
             {sidebarOpen && <span>Configuracion y ayuda</span>}
@@ -583,8 +709,22 @@ function App() {
 
         <footer className="chat-input-area">
           <div className="input-shell">
-            <input ref={fileInputRef} type="file" onChange={handleQuickUpload} style={{ display: "none" }} />
-            <button className="input-icon" onClick={handleQuickUploadClick} title="Adjuntar">＋</button>
+            <input
+              ref={sessionFileInputRef}
+              type="file"
+              multiple
+              accept=".pdf,.txt,.doc,.docx,.md,.markdown,.png,.jpg,.jpeg,.webp"
+              onChange={handleSessionUpload}
+              style={{ display: "none" }}
+            />
+            <button
+              className="input-icon"
+              onClick={handleSessionUploadClick}
+              title="Adjuntar a esta sesion"
+              disabled={isUploadingSessionDocs}
+            >
+              {isUploadingSessionDocs ? "…" : "＋"}
+            </button>
 
             <textarea
               rows={1}
@@ -598,6 +738,35 @@ function App() {
                 }
               }}
             />
+
+            <div className="session-attachments">
+              {isUploadingSessionDocs && (
+                <span className="uploading-inline">
+                  <span className="spinner" aria-hidden="true" />
+                  Subiendo adjuntos...
+                </span>
+              )}
+              {sessionDocuments.length === 0 ? (
+                <span className="attachments-empty">Sin adjuntos de sesion</span>
+              ) : (
+                sessionDocuments.map((item) => {
+                  const docId = item.document_id || item.file_hash || item.filename;
+                  return (
+                    <button
+                      key={docId}
+                      className="attachment-chip"
+                      title="Eliminar adjunto de sesion"
+                      onClick={() => deleteSessionDocument(docId)}
+                    >
+                      {item.filename || "Documento"} ×
+                    </button>
+                  );
+                })
+              )}
+              {sessionDocuments.length > 0 && (
+                <button className="ghost-btn small-btn" onClick={clearSessionDocuments}>Limpiar adjuntos</button>
+              )}
+            </div>
 
             <div className="input-toolbar">
               <select value={provider} onChange={(event) => setProvider(event.target.value)}>
@@ -646,6 +815,23 @@ function App() {
           <section className="panel" onClick={(event) => event.stopPropagation()}>
             <h3>Gestion de documentos</h3>
             <p>{documentsSummary}</p>
+            <input
+              ref={globalFileInputRef}
+              type="file"
+              multiple
+              accept=".pdf,.txt,.doc,.docx,.md,.markdown"
+              onChange={handleGlobalUpload}
+              style={{ display: "none" }}
+            />
+            <button className="primary-btn" onClick={handleGlobalUploadClick} disabled={isUploadingGlobalDocs}>
+              {isUploadingGlobalDocs ? "Subiendo..." : "Subir documentos globales RAG"}
+            </button>
+            {isUploadingGlobalDocs && (
+              <p className="uploading-inline">
+                <span className="spinner" aria-hidden="true" />
+                Subiendo documentos al RAG...
+              </p>
+            )}
 
             <div className="doc-list">
               {documents.length === 0 ? (

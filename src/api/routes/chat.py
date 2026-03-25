@@ -49,6 +49,10 @@ async def chat(request: ChatRequest):
         session_id = request.session_id or str(uuid4())
         session_manager = get_session_manager()
         session_manager.create_session(session_id)
+        session_documents = session_manager.get_session_documents_by_ids(
+            session_id=session_id,
+            document_ids=request.session_document_ids,
+        )
 
         existing_count = session_manager.get_message_count(session_id)
 
@@ -105,6 +109,8 @@ async def chat(request: ChatRequest):
                     message=request.message,
                     use_rag=request.use_rag,
                     conversation_messages=history,
+                    session_id=session_id,
+                    session_documents=session_documents,
                 ):
                     if event.get("type") == "delta":
                         content = event.get("content", "")
@@ -136,6 +142,8 @@ async def chat(request: ChatRequest):
             message=request.message,
             use_rag=request.use_rag,
             conversation_messages=history,
+            session_id=session_id,
+            session_documents=session_documents,
         )
 
         session_manager.append_message(

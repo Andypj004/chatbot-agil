@@ -9,7 +9,18 @@ from src.core.logger import get_logger
 
 logger = get_logger()
 
-ALLOWED_EXTENSIONS = {'.pdf', '.txt', '.docx', '.doc', '.md', '.markdown'}
+ALLOWED_EXTENSIONS = {
+    '.pdf',
+    '.txt',
+    '.docx',
+    '.doc',
+    '.md',
+    '.markdown',
+    '.png',
+    '.jpg',
+    '.jpeg',
+    '.webp',
+}
 
 
 async def save_uploaded_file(
@@ -41,10 +52,11 @@ async def save_uploaded_file(
         )
     
     # Generate file path
-    file_path = dest_path / upload_file.filename
+    safe_name = Path(upload_file.filename or "uploaded_file").name
+    file_path = dest_path / safe_name
     
     # Save file
-    logger.info(f"Saving uploaded file: {upload_file.filename}")
+    logger.info(f"Saving uploaded file: {safe_name}")
     async with aiofiles.open(file_path, 'wb') as out_file:
         content = await upload_file.read()
         await out_file.write(content)

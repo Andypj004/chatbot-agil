@@ -202,15 +202,29 @@ class VectorStore:
             logger.error(f"Error getting collection count: {e}")
             return 0
 
-    def list_indexed_documents(self) -> List[Dict[str, str]]:
+    def count_documents(self, metadata_filter: Optional[Dict[str, Any]] = None) -> int:
+        """Count documents by metadata filter (chunk-level)."""
+        if not metadata_filter:
+            return self.get_collection_count()
+
+        try:
+            collection = self.client.get_collection(self.collection_name)
+            rows = collection.get(where=metadata_filter)
+            ids = rows.get("ids") or []
+            return len(ids)
+        except Exception as e:
+            logger.error(f"Error counting filtered documents: {e}")
+            return 0
+
+    def list_indexed_documents(self, metadata_filter: Optional[Dict[str, Any]] = None) -> List[Dict[str, str]]:
         """Return unique document metadata entries stored in the collection."""
         try:
             collection = self.client.get_collection(self.collection_name)
-            count = collection.count()
+            count = collection.count() if metadata_filter is None else self.count_documents(metadata_filter)
             if count == 0:
                 return []
 
-            rows = collection.get(limit=count)
+            rows = collection.get(limit=count, where=metadata_filter)
             metadatas = rows.get("metadatas") or []
             ids = rows.get("ids") or []
 
@@ -245,16 +259,31 @@ class VectorStore:
 
                 fallback_id = key.split(":", 1)[-1]
                 unique_documents[key] = {
+                    "document_id": file_hash or fallback_id,
                     "filename": filename or "Documento sin nombre",
                     "file_type": file_type or "unknown",
                     "source": source or "unknown",
                     "file_hash": file_hash or fallback_id,
+                    "scope": str(item.get("scope") or "global_rag"),
+                    "session_id": item.get("session_id"),
                 }
 
             return sorted(unique_documents.values(), key=lambda doc: doc["filename"].lower())
         except Exception as e:
             logger.error(f"Error listing indexed documents: {e}")
             return []
+
+    def delete_by_metadata(self, metadata_filter: Dict[str, Any]) -> bool:
+        """Delete documents that match a metadata filter."""
+        logger.info(f"Deleting documents by metadata filter: {metadata_filter}")
+        try:
+            collection = self.client.get_collection(self.collection_name)
+            collection.delete(where=metadata_filter)
+            self._collection_count_cache = None
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting documents by metadata: {e}")
+            return False
     
     def clear_collection(self) -> bool:
         """Clear all documents from the collection

@@ -19,6 +19,10 @@ class ChatRequest(APIBaseModel):
     llm_provider: Optional[str] = Field(default=None, description="LLM provider to use")
     model_name: Optional[str] = Field(default=None, description="Model name to use")
     temperature: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    session_document_ids: List[str] = Field(
+        default_factory=list,
+        description="Optional session-scoped document IDs attached to this chat turn",
+    )
 
 
 class SourceCitation(APIBaseModel):
@@ -27,6 +31,8 @@ class SourceCitation(APIBaseModel):
     document_id: Optional[str] = None
     filename: Optional[str] = None
     source: Optional[str] = None
+    scope: Optional[str] = None
+    session_id: Optional[str] = None
     excerpt: str = Field(default="", description="Short source excerpt")
 
 
@@ -95,14 +101,19 @@ class DocumentUploadResponse(APIBaseModel):
     filename: str = Field(..., description="Uploaded filename")
     document_id: str = Field(..., description="Document ID in vector store")
     chunks_created: int = Field(..., description="Number of chunks created")
+    scope: str = Field(..., description="Document scope: global_rag or session_chat")
+    session_id: Optional[str] = Field(default=None, description="Owner session for session-scoped uploads")
 
 
 class DocumentInfo(APIBaseModel):
     """Information about a document"""
+    document_id: Optional[str] = None
     filename: str
     file_type: str
     source: str
     file_hash: str
+    scope: str = "global_rag"
+    session_id: Optional[str] = None
 
 
 class DocumentListResponse(APIBaseModel):
