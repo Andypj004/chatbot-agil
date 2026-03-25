@@ -10,7 +10,7 @@ services:
       - .env
     environment:
       DEFAULT_LLM_PROVIDER: ollama
-      DEFAULT_MODEL: llama3.2:3b
+      DEFAULT_MODEL: llava:7b
       OLLAMA_BASE_URL: http://ollama:11434
       ANONYMIZED_TELEMETRY: "False"
     volumes:
@@ -48,21 +48,16 @@ services:
     restart: unless-stopped
 
   ollama-pull:
-    image: curlimages/curl:latest
+    image: ollama/ollama:latest
     depends_on:
       ollama:
         condition: service_healthy
-    command:
-      - "--fail"
-      - "--silent"
-      - "--show-error"
-      - "-X"
-      - "POST"
-      - "http://ollama:11434/api/pull"
-      - "-H"
-      - "Content-Type: application/json"
-      - "-d"
-      - '{"name":"llama3.2:3b"}'
+    entrypoint: ["ollama"]
+    command: ["pull", "llava:7b"]
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    volumes:
+      - ollama-data:/root/.ollama
     restart: "no"
 
 volumes:
