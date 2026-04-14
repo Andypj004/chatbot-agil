@@ -3,6 +3,165 @@ const { useEffect, useMemo, useRef, useState } = React;
 const DEFAULT_API_BASE = `${window.location.origin}/api/v1`;
 const DEFAULT_SESSION = localStorage.getItem("sessionId") || null;
 const MAX_SESSION_LABEL_LENGTH = 56;
+const DEFAULT_MARKDOWN_RENDERING = true;
+const hasMarked = typeof window.marked !== "undefined";
+const hasDomPurify = typeof window.DOMPurify !== "undefined";
+
+const escapeHtml = (value) => (
+  String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+);
+
+if (hasMarked) {
+  const markdownRenderer = new window.marked.Renderer();
+
+  markdownRenderer.link = (hrefOrToken, title, text) => {
+    const href = typeof hrefOrToken === "object" && hrefOrToken !== null ? hrefOrToken.href : hrefOrToken;
+    const linkTitle = typeof hrefOrToken === "object" && hrefOrToken !== null ? hrefOrToken.title : title;
+    const linkText = typeof hrefOrToken === "object" && hrefOrToken !== null ? hrefOrToken.text : text;
+
+    const safeHref = String(href || "").trim();
+    const isSafeProtocol = /^(https?:|mailto:|#|\/)/i.test(safeHref);
+    const finalHref = isSafeProtocol ? safeHref : "#";
+    const safeTitle = linkTitle ? ` title=\"${escapeHtml(linkTitle)}\"` : "";
+    return `<a href="${escapeHtml(finalHref)}" target="_blank" rel="noopener noreferrer"${safeTitle}>${linkText || ""}</a>`;
+  };
+
+  markdownRenderer.html = (html) => escapeHtml(html);
+
+  window.marked.setOptions({
+    gfm: true,
+    breaks: true,
+    renderer: markdownRenderer
+  });
+}
+
+function sanitizeUrl(url) {
+  const candidate = String(url || "").trim();
+  if (!candidate) {
+    return "#";
+  }
+  return /^(https?:|mailto:|#|\/)/i.test(candidate) ? candidate : "#";
+}
+
+function normalizeMarkdownSource(value) {
+  return String(value || "")
+    .replace(/\\n/g, "\n")
+    .replace(/\\r/g, "\r")
+    .replace(/\\([`*_#>\[\]\(\)\-])/g, "$1");
+}
+
+function renderInlineMarkdown(value) {
+  let text = escapeHtml(value);
+
+  text = text.replace(/`([^`]+)`/g, "<code>$1</code>");
+  text = text.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  text = text.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+  text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, label, href) => {
+    const safeHref = escapeHtml(sanitizeUrl(href));
+    return `<a href="${safeHref}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+  });
+
+  return text;
+}
+
+function renderBasicMarkdown(rawText) {
+  const isTableSeparator = (value) => /^\s*\|?\s*[:\-\|\s]+\|?\s*$/.test(value || "");
+  const splitTableRow = (value) => String(value || "").trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+  const lines = String(rawText || "").replace(/\r\n/g, "\n").split("\n");
+  const html = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      i += 1;
+      continue;
+    }
+
+    if (trimmed.startsWith("```")) {
+      const codeLines = [];
+      i += 1;
+      while (i < lines.length && !lines[i].trim().startsWith("```")) {
+        codeLines.push(lines[i]);
+        i += 1;
+      }
+      html.push(`<pre><code>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+      if (i < lines.length) {
+        i += 1;
+      }
+      continue;
+    }
+
+    const headingMatch = trimmed.match(/^(#{1,4})\s+(.*)$/);
+    if (headingMatch) {
+      const level = headingMatch[1].length;
+      html.push(`<h${level}>${renderInlineMarkdown(headingMatch[2])}</h${level}>`);
+      i += 1;
+      continue;
+    }
+
+    if (/^>\s+/.test(trimmed)) {
+      html.push(`<blockquote>${renderInlineMarkdown(trimmed.replace(/^>\s+/, ""))}</blockquote>`);
+      i += 1;
+      continue;
+    }
+
+    if (/^\d+\.\s+/.test(trimmed)) {
+      const items = [];
+      while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i].trim())) {
+        items.push(lines[i].trim().replace(/^\d+\.\s+/, ""));
+        i += 1;
+      }
+      html.push(`<ol>${items.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("")}</ol>`);
+      continue;
+    }
+
+    if (/^[-*]\s+/.test(trimmed)) {
+      const items = [];
+      while (i < lines.length && /^\s*[-*]\s+/.test(lines[i].trim())) {
+        items.push(lines[i].trim().replace(/^[-*]\s+/, ""));
+        i += 1;
+      }
+      html.push(`<ul>${items.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("")}</ul>`);
+      continue;
+    }
+
+    if (trimmed.includes("|") && i + 1 < lines.length && isTableSeparator(lines[i + 1])) {
+      const headers = splitTableRow(lines[i]);
+      i += 2;
+      const bodyRows = [];
+
+      while (i < lines.length && lines[i].trim().includes("|") && lines[i].trim()) {
+        bodyRows.push(splitTableRow(lines[i]));
+        i += 1;
+      }
+
+      const thead = `<thead><tr>${headers.map((cell) => `<th>${renderInlineMarkdown(cell)}</th>`).join("")}</tr></thead>`;
+      const tbody = bodyRows.length
+        ? `<tbody>${bodyRows.map((row) => `<tr>${row.map((cell) => `<td>${renderInlineMarkdown(cell)}</td>`).join("")}</tr>`).join("")}</tbody>`
+        : "";
+      html.push(`<table>${thead}${tbody}</table>`);
+      continue;
+    }
+
+    const paragraphLines = [trimmed];
+    i += 1;
+    while (i < lines.length && lines[i].trim() && !/^(#{1,4})\s+/.test(lines[i].trim()) && !/^\s*\d+\.\s+/.test(lines[i].trim()) && !/^\s*[-*]\s+/.test(lines[i].trim()) && !/^>\s+/.test(lines[i].trim()) && !lines[i].trim().startsWith("```")) {
+      paragraphLines.push(lines[i].trim());
+      i += 1;
+    }
+    html.push(`<p>${renderInlineMarkdown(paragraphLines.join(" "))}</p>`);
+  }
+
+  return html.join("\n");
+}
 
 function truncateText(text, max = MAX_SESSION_LABEL_LENGTH) {
   const compact = (text || "").trim();
@@ -72,12 +231,33 @@ function SourceReferences({ sources = [] }) {
   );
 }
 
+function MarkdownContent({ content = "", enabled = true }) {
+  const safeHtml = useMemo(() => {
+    const raw = normalizeMarkdownSource(content);
+    const fallbackHtml = renderBasicMarkdown(raw);
+
+    if (!enabled || !hasMarked || !hasDomPurify) {
+      return fallbackHtml;
+    }
+
+    const parsed = window.marked.parse(raw);
+    return window.DOMPurify.sanitize(parsed, {
+      USE_PROFILES: { html: true },
+      FORBID_TAGS: ["script", "style", "iframe", "object", "embed", "form", "input", "button", "textarea", "svg", "math"],
+      FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "style"]
+    });
+  }, [content, enabled]);
+
+  return <div className="markdown-content" dangerouslySetInnerHTML={{ __html: safeHtml }} />;
+}
+
 function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [helpMenuOpen, setHelpMenuOpen] = useState(false);
 
   const [apiBase, setApiBase] = useState(localStorage.getItem("apiBase") || DEFAULT_API_BASE);
   const [theme, setTheme] = useState(localStorage.getItem("theme") || "dark");
+  const [markdownRendering, setMarkdownRendering] = useState(DEFAULT_MARKDOWN_RENDERING);
 
   const [providers, setProviders] = useState([]);
   const [modelsByProvider, setModelsByProvider] = useState({});
@@ -566,6 +746,10 @@ function App() {
   }, [apiBase]);
 
   useEffect(() => {
+    localStorage.setItem("enableMarkdownRendering", String(markdownRendering));
+  }, [markdownRendering]);
+
+  useEffect(() => {
     if (!provider || modelsForCurrentProvider.length === 0) {
       return;
     }
@@ -700,7 +884,9 @@ function App() {
           <div className="messages-stack">
             {messages.map((item, index) => (
               <article key={`${item.role}-${index}`} className={`bubble ${item.role}`}>
-                <p>{item.content}</p>
+                {String(item.role || "").toLowerCase() !== "user"
+                  ? <MarkdownContent content={item.content} enabled={markdownRendering} />
+                  : <p>{item.content}</p>}
                 <SourceReferences sources={item.sources} />
               </article>
             ))}
@@ -801,6 +987,15 @@ function App() {
 
             <label>Max tokens</label>
             <input type="number" min="1" value={maxTokens} onChange={(event) => setMaxTokens(Number(event.target.value))} />
+
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={markdownRendering}
+                onChange={(event) => setMarkdownRendering(event.target.checked)}
+              />
+              Render Markdown seguro en respuestas
+            </label>
 
             <div className="panel-actions">
               <button className="ghost-btn" onClick={() => setSettingsOpen(false)}>Cerrar</button>
