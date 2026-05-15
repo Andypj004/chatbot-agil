@@ -125,9 +125,13 @@ class DocumentProcessor:
         
         chunked_docs = self.text_splitter.split_documents(documents)
         
-        # Add chunk metadata
+        # Add chunk metadata and carry forward section/page hints when available.
         for i, doc in enumerate(chunked_docs):
             doc.metadata["chunk_id"] = i
+            if "page" in doc.metadata and "page_label" not in doc.metadata:
+                doc.metadata["page_label"] = str(doc.metadata.get("page"))
+            if "title" in doc.metadata and "section" not in doc.metadata:
+                doc.metadata["section"] = doc.metadata.get("title")
         
         logger.info(f"Created {len(chunked_docs)} chunks")
         return chunked_docs
