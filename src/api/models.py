@@ -10,6 +10,15 @@ class APIBaseModel(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 
 
+class SessionAttachment(APIBaseModel):
+    """Attachment metadata stored with a chat message."""
+
+    document_id: Optional[str] = None
+    filename: Optional[str] = None
+    file_type: Optional[str] = None
+    source_url: Optional[str] = None
+
+
 class ChatRequest(APIBaseModel):
     """Request model for chat endpoint"""
     message: str = Field(..., description="User message", min_length=1)
@@ -23,6 +32,10 @@ class ChatRequest(APIBaseModel):
         default_factory=list,
         description="Optional session-scoped document IDs attached to this chat turn",
     )
+    session_attachments: List[SessionAttachment] = Field(
+        default_factory=list,
+        description="Optional attachment metadata to persist with the chat turn",
+    )
 
 
 class SourceCitation(APIBaseModel):
@@ -31,8 +44,11 @@ class SourceCitation(APIBaseModel):
     document_id: Optional[str] = None
     filename: Optional[str] = None
     source: Optional[str] = None
+    page: Optional[int] = None
+    section: Optional[str] = None
     scope: Optional[str] = None
     session_id: Optional[str] = None
+    relevance: Optional[float] = None
     excerpt: str = Field(default="", description="Short source excerpt")
 
 
@@ -59,6 +75,7 @@ class ConversationMessage(APIBaseModel):
     model: Optional[str] = None
     used_rag: Optional[bool] = None
     sources: List[SourceCitation] = Field(default_factory=list)
+    attachments: List[SessionAttachment] = Field(default_factory=list)
 
 
 class SessionSummary(APIBaseModel):
