@@ -8,6 +8,8 @@ import json
 import sqlite3
 import threading
 
+from src.memory.concept_tracker import extract_concepts
+
 
 class SessionManager:
     """Store and query conversations in a local SQLite database."""
@@ -56,6 +58,12 @@ class SessionManager:
                 )
                 """
             )
+            existing_columns = {
+                row[1]
+                for row in conn.execute("PRAGMA table_info(messages)").fetchall()
+            }
+            if "attachments_json" not in existing_columns:
+                conn.execute("ALTER TABLE messages ADD COLUMN attachments_json TEXT")
             conn.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_messages_session_created
@@ -90,6 +98,45 @@ class SessionManager:
                 ON session_documents (session_id, uploaded_at)
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS session_concepts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    concept TEXT NOT NULL,
+                    mention_count INTEGER NOT NULL DEFAULT 1,
+                    first_mentioned TEXT NOT NULL,
+                    last_mentioned TEXT NOT NULL,
+                    UNIQUE(session_id, concept),
+                    FOREIGN KEY(session_id) REFERENCES sessions(session_id)
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_session_concepts_session
+                ON session_concepts (session_id, last_mentioned)
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS form_states (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    form_id TEXT NOT NULL,
+                    state_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(session_id, form_id),
+                    FOREIGN KEY(session_id) REFERENCES sessions(session_id)
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_form_states_session
+                ON form_states (session_id, updated_at)
+                """
+            )
             conn.commit()
 
     def create_session(self, session_id: str, title: Optional[str] = None) -> None:
@@ -115,6 +162,7 @@ class SessionManager:
         model: Optional[str] = None,
         used_rag: Optional[bool] = None,
         sources: Optional[List[Dict[str, Any]]] = None,
+        attachments: Optional[List[Dict[str, Any]]] = None,
     ) -> None:
         now = self._now_iso()
         with self._lock:
@@ -130,8 +178,8 @@ class SessionManager:
                 conn.execute(
                     """
                     INSERT INTO messages
-                    (session_id, role, text, created_at, provider, model, used_rag, sources_json)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    (session_id, role, text, created_at, provider, model, used_rag, sources_json, attachments_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         session_id,
@@ -142,6 +190,7 @@ class SessionManager:
                         model,
                         int(used_rag) if used_rag is not None else None,
                         json.dumps(sources or []),
+                        json.dumps(attachments or []),
                     ),
                 )
                 conn.execute(
@@ -157,7 +206,7 @@ class SessionManager:
         offset: int = 0,
     ) -> List[Dict[str, Any]]:
         query = """
-            SELECT id, session_id, role, text, created_at, provider, model, used_rag, sources_json
+            SELECT id, session_id, role, text, created_at, provider, model, used_rag, sources_json, attachments_json
             FROM messages
             WHERE session_id = ?
             ORDER BY id ASC
@@ -184,6 +233,7 @@ class SessionManager:
                     "model": row["model"],
                     "used_rag": bool(row["used_rag"]) if row["used_rag"] is not None else None,
                     "sources": json.loads(row["sources_json"] or "[]"),
+                    "attachments": json.loads(row["attachments_json"] or "[]"),
                 }
             )
         return messages
@@ -256,6 +306,53 @@ class SessionManager:
             "updated_at": row["updated_at"],
         }
 
+    def upsert_form_state(self, session_id: str, form_id: str, state: Dict[str, Any]) -> None:
+        now = self._now_iso()
+        with self._lock:
+            with self._connect() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO sessions (session_id, title, created_at, updated_at)
+                    VALUES (?, NULL, ?, ?)
+                    ON CONFLICT(session_id) DO NOTHING
+                    """,
+                    (session_id, now, now),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO form_states (session_id, form_id, state_json, updated_at)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(session_id, form_id)
+                    DO UPDATE SET state_json = excluded.state_json,
+                                  updated_at = excluded.updated_at
+                    """,
+                    (session_id, form_id, json.dumps(state), now),
+                )
+                conn.execute(
+                    "UPDATE sessions SET updated_at = ? WHERE session_id = ?",
+                    (now, session_id),
+                )
+                conn.commit()
+
+    def get_form_state(self, session_id: str, form_id: str) -> Optional[Dict[str, Any]]:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT state_json
+                FROM form_states
+                WHERE session_id = ? AND form_id = ?
+                """,
+                (session_id, form_id),
+            ).fetchone()
+
+        if not row:
+            return None
+
+        try:
+            return json.loads(row["state_json"])
+        except Exception:
+            return None
+
     def update_session_title(self, session_id: str, title: str) -> bool:
         now = self._now_iso()
         normalized_title = title.strip()
@@ -283,6 +380,98 @@ class SessionManager:
                 (session_id,),
             ).fetchone()
         return int(row["count"]) if row else 0
+
+    def record_concepts(self, session_id: str, *texts: str) -> list[str]:
+        now = self._now_iso()
+        concepts: list[str] = []
+        for text in texts:
+            concepts.extend(extract_concepts(text))
+
+        unique_concepts = list(dict.fromkeys(concepts))
+        if not unique_concepts:
+            return []
+
+        with self._lock:
+            with self._connect() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO sessions (session_id, title, created_at, updated_at)
+                    VALUES (?, NULL, ?, ?)
+                    ON CONFLICT(session_id) DO NOTHING
+                    """,
+                    (session_id, now, now),
+                )
+                for concept in unique_concepts:
+                    existing = conn.execute(
+                        """
+                        SELECT mention_count
+                        FROM session_concepts
+                        WHERE session_id = ? AND concept = ?
+                        """,
+                        (session_id, concept),
+                    ).fetchone()
+                    if existing:
+                        conn.execute(
+                            """
+                            UPDATE session_concepts
+                            SET mention_count = mention_count + 1,
+                                last_mentioned = ?
+                            WHERE session_id = ? AND concept = ?
+                            """,
+                            (now, session_id, concept),
+                        )
+                    else:
+                        conn.execute(
+                            """
+                            INSERT INTO session_concepts
+                            (session_id, concept, mention_count, first_mentioned, last_mentioned)
+                            VALUES (?, ?, 1, ?, ?)
+                            """,
+                            (session_id, concept, now, now),
+                        )
+                conn.execute(
+                    "UPDATE sessions SET updated_at = ? WHERE session_id = ?",
+                    (now, session_id),
+                )
+                conn.commit()
+
+        return unique_concepts
+
+    def has_seen_concept(self, session_id: str, concept: str) -> bool:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT 1
+                FROM session_concepts
+                WHERE session_id = ? AND concept = ?
+                LIMIT 1
+                """,
+                (session_id, concept),
+            ).fetchone()
+        return row is not None
+
+    def get_session_concepts(self, session_id: str, limit: int = 10) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT concept, mention_count, first_mentioned, last_mentioned
+                FROM session_concepts
+                WHERE session_id = ?
+                ORDER BY last_mentioned DESC, mention_count DESC
+                LIMIT ?
+                """,
+                (session_id, limit),
+            ).fetchall()
+
+        return [
+            {
+                "concept": row["concept"],
+                "mention_count": row["mention_count"],
+                "first_mentioned": row["first_mentioned"],
+                "last_mentioned": row["last_mentioned"],
+            }
+            for row in rows
+        ]
 
     def clear_session(self, session_id: str) -> None:
         with self._lock:
