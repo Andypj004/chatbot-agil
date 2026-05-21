@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import os
+import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import json
@@ -16,10 +18,26 @@ class SessionManager:
 
     def __init__(self, db_path: str):
         self._lock = threading.Lock()
-        self._db_path = db_path
-        db_parent = Path(db_path).parent
+        self._requested_db_path = Path(db_path)
+        self._db_path = self._resolve_db_path(self._requested_db_path)
+        db_parent = self._db_path.parent
         db_parent.mkdir(parents=True, exist_ok=True)
         self._initialize_schema()
+
+    def _resolve_db_path(self, db_path: Path) -> Path:
+        """Return a writable DB path, copying the existing DB when needed."""
+        if not db_path.exists():
+            return db_path
+
+        if os.access(db_path, os.W_OK):
+            return db_path
+
+        fallback_path = db_path.with_name(f"{db_path.stem}.writable{db_path.suffix}")
+        try:
+            shutil.copy2(db_path, fallback_path)
+            return fallback_path
+        except Exception:
+            return db_path
 
     @staticmethod
     def _now_iso() -> str:
