@@ -6,6 +6,7 @@ import aiofiles
 from fastapi import UploadFile
 
 from src.core.logger import get_logger
+from uuid import uuid4
 
 logger = get_logger()
 
@@ -51,12 +52,15 @@ async def save_uploaded_file(
             f"Allowed types: {', '.join(ALLOWED_EXTENSIONS)}"
         )
     
-    # Generate file path
-    safe_name = Path(upload_file.filename or "uploaded_file").name
-    file_path = dest_path / safe_name
+    # Generate a unique file path to avoid accidental overwrites
+    original_name = Path(upload_file.filename or "uploaded_file").name
+    stem = Path(original_name).stem
+    ext = Path(original_name).suffix
+    unique_name = f"{stem}_{uuid4().hex}{ext}"
+    file_path = dest_path / unique_name
     
     # Save file
-    logger.info(f"Saving uploaded file: {safe_name}")
+    logger.info(f"Saving uploaded file: {unique_name}")
     async with aiofiles.open(file_path, 'wb') as out_file:
         content = await upload_file.read()
         await out_file.write(content)
