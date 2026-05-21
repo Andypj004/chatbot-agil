@@ -1,7 +1,11 @@
 """Vector store management using ChromaDB"""
 
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
+import os
+import shutil
 from pathlib import Path
+import re
+import hashlib
 
 from src.core.config import settings
 from src.core.logger import get_logger
@@ -16,6 +20,37 @@ logger = get_logger()
 
 class VectorStore:
     """Vector store manager using ChromaDB"""
+
+    @staticmethod
+    def _slugify_model_name(model_name: str) -> str:
+        slug = re.sub(r"[^a-z0-9]+", "_", model_name.lower())
+        slug = re.sub(r"_+", "_", slug).strip("_")
+        if not slug:
+            slug = "default"
+
+        prefix = "chatbot_documents_"
+        max_collection_length = 63
+        max_slug_length = max_collection_length - len(prefix)
+        if len(slug) > max_slug_length:
+            digest = hashlib.md5(model_name.encode("utf-8")).hexdigest()[:8]
+            slug = f"{slug[:max_slug_length - 9].rstrip('_')}_{digest}"
+
+        return slug
+
+    @staticmethod
+    def _resolve_persist_directory(persist_directory: Path) -> Path:
+        if not persist_directory.exists():
+            return persist_directory
+
+        if os.access(persist_directory, os.W_OK):
+            return persist_directory
+
+        fallback_path = persist_directory.with_name(f"{persist_directory.name}.writable")
+        try:
+            shutil.copytree(persist_directory, fallback_path, dirs_exist_ok=True)
+            return fallback_path
+        except Exception:
+            return persist_directory
     
     def __init__(
         self,
@@ -34,9 +69,15 @@ class VectorStore:
         self.persist_directory = persist_directory or settings.chroma_persist_dir
         self.embedding_model_name = embedding_model or settings.embedding_model
         self._collection_count_cache: Optional[int] = None
+
+        if self.collection_name == "chatbot_documents":
+            model_slug = self._slugify_model_name(self.embedding_model_name)
+            self.collection_name = f"chatbot_documents_{model_slug}"
         
         # Create persist directory if it doesn't exist
-        Path(self.persist_directory).mkdir(parents=True, exist_ok=True)
+        persist_path = Path(self.persist_directory)
+        persist_path.mkdir(parents=True, exist_ok=True)
+        self.persist_directory = str(self._resolve_persist_directory(persist_path))
 
         import chromadb
         from chromadb.config import Settings as ChromaSettings
