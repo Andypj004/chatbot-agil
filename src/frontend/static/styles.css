@@ -374,6 +374,7 @@ textarea::placeholder {
   gap: 18px;
   max-width: 860px;
   width: 100%;
+  align-items: stretch;
   margin: 0 auto;
 }
 
@@ -403,9 +404,67 @@ textarea::placeholder {
   margin-bottom: 0;
 }
 
-.markdown-content h1,
-.markdown-content h2,
-.markdown-content h3,
+/* Attachment previews inside the input area (small thumbnails) */
+.attachment-card.preview {
+  min-width: 120px;
+  max-width: 320px;
+  padding: 6px 8px;
+  align-items: center;
+}
+
+.attachment-thumb-button {
+  border: none;
+  background: transparent;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  cursor: zoom-in;
+  flex: 0 0 auto;
+}
+
+.attachment-thumb {
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 8px;
+  margin-left: 8px;
+  flex: 0 0 auto;
+}
+
+.attachment-remove-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-soft);
+  cursor: pointer;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  font-size: 1.1rem;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+
+.attachment-remove-btn:hover {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger);
+}
+
+/* Message attachment sizing in the conversation */
+.message-attachment.image {
+  max-width: 420px;
+}
+
+.message-attachment-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: 420px;
+  max-height: 220px;
+  object-fit: contain;
+  cursor: zoom-in;
+}
 .markdown-content h4 {
   margin: 0.6rem 0 0.35rem;
   line-height: 1.25;
@@ -501,6 +560,13 @@ textarea::placeholder {
   align-self: flex-start;
   width: 100%;
   background: transparent;
+}
+
+.bubble.system {
+  align-self: flex-start;
+  width: 100%;
+  background: color-mix(in srgb, var(--surface-2) 88%, var(--primary) 12%);
+  border-left: 3px solid var(--primary);
 }
 
 .sources-block {
@@ -601,16 +667,17 @@ textarea::placeholder {
 }
 
 .input-shell {
-  max-width: 860px;
+  max-width: 800px;
   margin: 0 auto;
   border: 1px solid var(--border);
-  border-radius: 26px;
+  border-radius: 22px;
   background: var(--surface-2);
-  padding: 10px;
+  padding: 8px 10px 10px;
   display: grid;
   grid-template-columns: auto 1fr;
-  grid-template-rows: auto auto;
-  gap: 8px 10px;
+  grid-template-rows: auto auto auto;
+  gap: 6px 8px;
+  align-items: center;
 }
 
 .input-icon {
@@ -622,7 +689,7 @@ textarea::placeholder {
   background: transparent;
   color: var(--text);
   cursor: pointer;
-  align-self: end;
+  align-self: start;
 }
 
 .chat-input-area textarea {
@@ -631,26 +698,24 @@ textarea::placeholder {
   background: transparent;
   color: var(--text);
   resize: none;
-  min-height: 36px;
-  max-height: 180px;
+  min-height: 34px;
+  max-height: 140px;
   outline: none;
   text-align: left;
   direction: ltr;
   line-height: 1.45;
-  padding: 4px 0;
+  padding: 2px 0 4px;
 }
 
 .session-attachments {
   grid-column: 2 / -1;
   display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.attachments-empty {
-  color: var(--text-soft);
-  font-size: 0.78rem;
+  gap: 6px;
+  align-items: flex-start;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  min-height: 0;
 }
 
 .uploading-inline {
@@ -671,18 +736,156 @@ textarea::placeholder {
   animation: spin 0.85s linear infinite;
 }
 
-.attachment-chip {
+.attachment-card {
   border: 1px solid var(--border);
   background: var(--surface-3);
   color: var(--text);
-  border-radius: 999px;
-  padding: 4px 10px;
+  border-radius: 16px;
+  padding: 8px 10px;
   font-size: 0.75rem;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  max-width: 250px;
+  text-align: left;
 }
 
-.attachment-chip:hover {
+.attachment-card:hover {
   border-color: var(--primary);
+  transform: translateY(-1px);
+}
+
+.attachment-card.preview {
+  min-width: 108px;
+  max-width: 260px;
+  padding: 5px 7px;
+  align-items: center;
+}
+
+.attachment-card.image {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-3) 90%, var(--primary) 10%), var(--surface-3));
+}
+
+.attachment-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  flex: 0 0 auto;
+}
+
+.attachment-card-body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.attachment-name {
+  font-size: 0.78rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.attachment-kind {
+  font-size: 0.68rem;
+  color: var(--text-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.attachment-remove {
+  color: var(--text-soft);
+  font-size: 0.95rem;
+  margin-left: auto;
+}
+
+.message-attachments {
+  margin-top: 10px;
+  display: grid;
+  gap: 10px;
+}
+
+.message-attachment {
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--surface-2);
+  overflow: hidden;
+  display: grid;
+  gap: 0;
+}
+
+.message-attachment.image {
+  max-width: min(420px, 100%);
+}
+
+.message-attachment-image {
+  display: block;
+  width: 100%;
+  max-height: 220px;
+  object-fit: contain;
+  background: var(--surface-3);
+}
+
+.message-attachment-fallback {
+  min-height: 96px;
+  display: grid;
+  place-items: center;
+  font-size: 1.35rem;
+  background: color-mix(in srgb, var(--surface-3) 88%, var(--primary) 12%);
+}
+
+.message-attachment-caption {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px 12px;
+  color: var(--text-soft);
+}
+
+.message-attachment-caption strong {
+  color: var(--text);
+  font-size: 0.84rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-attachment-caption span {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.attachment-viewer-panel {
+  width: min(980px, 94vw);
+  max-height: 92vh;
+}
+
+.attachment-viewer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.attachment-viewer-header strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-viewer-image {
+  width: 100%;
+  max-height: calc(92vh - 110px);
+  object-fit: contain;
+  background: var(--surface-2);
+  border-radius: 12px;
+  border: 1px solid var(--border);
 }
 
 .small-btn {
@@ -694,16 +897,16 @@ textarea::placeholder {
   grid-column: 2 / -1;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
   justify-content: flex-end;
 }
 
 .input-toolbar select {
   width: auto;
-  min-width: 130px;
-  max-width: 200px;
-  padding: 7px 10px;
+  min-width: 118px;
+  max-width: 156px;
+  padding: 6px 9px;
   font-size: 0.82rem;
 }
 

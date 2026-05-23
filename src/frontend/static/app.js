@@ -55,6 +55,54 @@ function normalizeMarkdownSource(value) {
     .replace(/\\([`*_#>\[\]\(\)\-])/g, "$1");
 }
 
+function normalizeOrderedListsHtml(html) {
+  try {
+    const container = document.createElement('div');
+    container.innerHTML = html;
+    const nodes = Array.from(container.childNodes);
+    let i = 0;
+    while (i < nodes.length) {
+      const node = nodes[i];
+      if (node.nodeType === Node.ELEMENT_NODE && node.tagName === 'P') {
+        const text = node.textContent || '';
+        if (/^\s*\d+\.\s+/.test(text)) {
+          // Start collecting consecutive numbered paragraphs
+          const ol = document.createElement('ol');
+          while (i < nodes.length) {
+            const current = nodes[i];
+            if (!(current.nodeType === Node.ELEMENT_NODE && current.tagName === 'P')) break;
+            const curText = current.textContent || '';
+            const m = curText.match(/^\s*\d+\.\s+(.*)$/s);
+            if (!m) break;
+            const li = document.createElement('li');
+            li.innerHTML = current.innerHTML.replace(/^\s*\d+\.\s+/, '');
+            ol.appendChild(li);
+            const next = current.nextSibling;
+            container.removeChild(current);
+            nodes.splice(i, 1);
+            if (next == null) break;
+            // refresh nodes reference
+            // nodes array will be rebuilt in next loop iteration if needed
+          }
+          // insert ol at position i
+          const refNode = container.childNodes[i] || null;
+          container.insertBefore(ol, refNode);
+          // rebuild nodes and continue after inserted ol
+          const newNodes = Array.from(container.childNodes);
+          nodes.length = 0;
+          Array.prototype.push.apply(nodes, newNodes);
+          i += 1;
+          continue;
+        }
+      }
+      i += 1;
+    }
+    return container.innerHTML;
+  } catch (e) {
+    return html;
+  }
+}
+
 function renderInlineMarkdown(value) {
   let text = escapeHtml(value);
 
@@ -189,10 +237,31 @@ function getSessionLabel(session) {
   return `Chat ${String(session.session_id || "").slice(0, 8)}`;
 }
 
+function isImageAttachment(item) {
+  return /^(png|jpg|jpeg|webp|gif)$/i.test(String(item?.file_type || ""));
+}
+
+function attachmentLabel(item) {
+  return item?.filename || item?.document_id || "Documento";
+}
+
+function attachmentSourceUrl(item) {
+  return String(item?.source_url || item?.previewUrl || item?.source || "").trim();
+}
+
+function attachmentKindLabel(item) {
+  return /^(png|jpg|jpeg|webp|gif)$/i.test(String(item?.file_type || ""))
+    ? "Imagen"
+    : String(item?.file_type || "Documento").toUpperCase();
+}
+
 function SourceReferences({ sources = [] }) {
   const [isOpen, setIsOpen] = useState(false);
+  const sortedSources = useMemo(() => {
+    return [...sources].sort((left, right) => Number(right.relevance || 0) - Number(left.relevance || 0));
+  }, [sources]);
 
-  if (!sources.length) {
+  if (!sortedSources.length) {
     return null;
   }
 
@@ -200,16 +269,18 @@ function SourceReferences({ sources = [] }) {
     <div className="sources-block">
       <button className="sources-toggle" onClick={() => setIsOpen((value) => !value)}>
         <span>{isOpen ? "Ocultar" : "Ver"} fuentes</span>
-        <span className="sources-count">{sources.length}</span>
+        <span className="sources-count">{sortedSources.length}</span>
       </button>
 
       {isOpen && (
         <div className="sources-panel">
-          {sources.map((source, sourceIndex) => {
+          {sortedSources.map((source, sourceIndex) => {
             const sourceTitle = source.filename || source.source || "Documento";
             const excerpt = source.excerpt || "Sin extracto disponible.";
             const sourceHint = source.source || source.document_id || "Referencia";
             const scopeLabel = source.scope === "session_chat" ? "Sesion" : "Global";
+            const pageLabel = source.page ? `Pagina ${source.page}` : null;
+            const sectionLabel = source.section ? `Seccion: ${source.section}` : null;
 
             return (
               <article key={`${sourceTitle}-${sourceIndex}`} className="source-card">
@@ -221,6 +292,11 @@ function SourceReferences({ sources = [] }) {
                   </div>
                 </div>
                 <p className="source-meta">{sourceHint}</p>
+                {(pageLabel || sectionLabel) && (
+                  <p className="source-location">
+                    {[pageLabel, sectionLabel].filter(Boolean).join(" · ")}
+                  </p>
+                )}
                 <p className="source-excerpt">{excerpt}</p>
               </article>
             );
@@ -240,7 +316,8 @@ function MarkdownContent({ content = "", enabled = true }) {
       return fallbackHtml;
     }
 
-    const parsed = window.marked.parse(raw);
+    let parsed = window.marked.parse(raw);
+    parsed = normalizeOrderedListsHtml(parsed);
     return window.DOMPurify.sanitize(parsed, {
       USE_PROFILES: { html: true },
       FORBID_TAGS: ["script", "style", "iframe", "object", "embed", "form", "input", "button", "textarea", "svg", "math"],
@@ -249,6 +326,42 @@ function MarkdownContent({ content = "", enabled = true }) {
   }, [content, enabled]);
 
   return <div className="markdown-content" dangerouslySetInnerHTML={{ __html: safeHtml }} />;
+}
+
+function AttachmentPreview({ item, onOpen }) {
+  const isImage = String(item?.file_type || "").toLowerCase().startsWith("image/") || /^(png|jpg|jpeg|webp|gif)$/i.test(String(item?.file_type || ""));
+  const previewUrl = attachmentSourceUrl(item);
+  const label = attachmentLabel(item);
+  const handleOpen = () => {
+    if (typeof onOpen === "function") {
+      onOpen(item);
+    }
+  };
+
+  return (
+    <figure
+      className={`message-attachment ${isImage ? "image" : "document"}`}
+      tabIndex={isImage ? 0 : -1}
+      role={isImage ? "button" : undefined}
+      onClick={isImage ? handleOpen : undefined}
+      onKeyDown={isImage ? (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          handleOpen();
+        }
+      } : undefined}
+    >
+      {isImage && previewUrl ? (
+        <img className="message-attachment-image" src={previewUrl} alt={label} />
+      ) : (
+        <div className="message-attachment-fallback" aria-hidden="true">📎</div>
+      )}
+      <figcaption className="message-attachment-caption">
+        <strong>{label}</strong>
+        <span>{attachmentKindLabel(item)}</span>
+      </figcaption>
+    </figure>
+  );
 }
 
 function App() {
@@ -275,6 +388,7 @@ function App() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [pendingAttachments, setPendingAttachments] = useState([]);
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [docsOpen, setDocsOpen] = useState(false);
@@ -285,6 +399,7 @@ function App() {
   const [documentsSummary, setDocumentsSummary] = useState("No cargado");
   const [deleteDocId, setDeleteDocId] = useState("");
   const [health, setHealth] = useState({ status: "...", version: "-", rag_status: "-", vector_store_documents: 0 });
+  const [attachmentViewer, setAttachmentViewer] = useState(null);
 
   const [alert, setAlert] = useState(null);
 
@@ -386,11 +501,17 @@ function App() {
       id: item.id,
       role: item.role,
       content: item.text,
-      sources: item.sources || []
+      sources: item.sources || [],
+      attachments: (item.attachments || []).map((attachment) => ({
+        ...attachment,
+        source_url: attachment.source_url || attachment.source || ""
+      }))
     }));
     setMessages(mapped);
     setSessionId(id);
     localStorage.setItem("sessionId", id);
+    setPendingAttachments([]);
+    setAttachmentViewer(null);
     await loadSessionDocuments(id);
   };
 
@@ -399,6 +520,8 @@ function App() {
     localStorage.removeItem("sessionId");
     setMessages([]);
     setSessionDocuments([]);
+    setPendingAttachments([]);
+    setAttachmentViewer(null);
     setHelpMenuOpen(false);
   };
 
@@ -454,6 +577,42 @@ function App() {
     return response.json();
   };
 
+  const uploadSessionFiles = async (targetSessionId, files) => {
+    const results = await Promise.all(files.map((file) => uploadSessionDocument(targetSessionId, file)));
+    await Promise.all([loadSessionDocuments(targetSessionId), loadSessions(sessionSearch)]);
+    return results;
+  };
+
+  const publicUploadUrl = (targetSessionId, filename) => (
+    `/uploads/sessions/${encodeURIComponent(targetSessionId)}/${encodeURIComponent(filename)}`
+  );
+
+  const openAttachmentViewer = (item) => {
+    const sourceUrl = attachmentSourceUrl(item);
+    if (!sourceUrl) {
+      return;
+    }
+    setAttachmentViewer({
+      src: sourceUrl,
+      label: attachmentLabel(item)
+    });
+  };
+
+  const closeAttachmentViewer = () => {
+    setAttachmentViewer(null);
+  };
+
+  const removePendingAttachment = (index) => {
+    setPendingAttachments((current) => {
+      const next = [...current];
+      const [removed] = next.splice(index, 1);
+      if (removed?.previewUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(removed.previewUrl);
+      }
+      return next;
+    });
+  };
+
   const handleGlobalUploadClick = () => {
     if (isUploadingGlobalDocs) {
       return;
@@ -497,16 +656,71 @@ function App() {
     }
 
     const targetSessionId = ensureSessionContextId();
+    const attachments = files.map((file) => ({
+      filename: file.name,
+      file_type: file.type || file.name.split(".").pop() || "document",
+      previewUrl: URL.createObjectURL(file),
+      source_url: publicUploadUrl(targetSessionId, file.name),
+    }));
+    setPendingAttachments(attachments);
     setIsUploadingSessionDocs(true);
     try {
-      await Promise.all(files.map((file) => uploadSessionDocument(targetSessionId, file)));
+      const results = await uploadSessionFiles(targetSessionId, files);
+      setPendingAttachments((current) => current.map((item, index) => ({
+        ...item,
+        document_id: results[index]?.document_id || item.document_id,
+        source_url: publicUploadUrl(targetSessionId, item.filename),
+      })));
       notify(`Adjuntos de sesion cargados: ${files.length}`, "ok");
-      await Promise.all([loadSessionDocuments(targetSessionId), loadSessions(sessionSearch)]);
     } catch (error) {
       notify(`Error al subir adjunto de sesion: ${error.message}`, "error");
     } finally {
       setIsUploadingSessionDocs(false);
       event.target.value = "";
+    }
+  };
+
+  const handleSessionPaste = async (event) => {
+    const items = Array.from(event.clipboardData?.items || []);
+    const imageFiles = items
+      .filter((item) => item.kind === "file" && String(item.type || "").startsWith("image/"))
+      .map((item, index) => {
+        const file = item.getAsFile();
+        if (!file) {
+          return null;
+        }
+        const extension = String(file.type || "image/png").split("/")[1] || "png";
+        const filename = `clipboard-image-${Date.now()}-${index}.${extension}`;
+        return new File([file], filename, { type: file.type || "image/png" });
+      })
+      .filter(Boolean);
+
+    if (!imageFiles.length) {
+      return;
+    }
+
+    event.preventDefault();
+    const targetSessionId = ensureSessionContextId();
+    const attachments = imageFiles.map((file) => ({
+      filename: file.name,
+      file_type: file.type || "image/png",
+      previewUrl: URL.createObjectURL(file),
+      source_url: publicUploadUrl(targetSessionId, file.name),
+    }));
+    setPendingAttachments(attachments);
+    setIsUploadingSessionDocs(true);
+    try {
+      const results = await uploadSessionFiles(targetSessionId, imageFiles);
+      setPendingAttachments((current) => current.map((item, index) => ({
+        ...item,
+        document_id: results[index]?.document_id || item.document_id,
+        source_url: publicUploadUrl(targetSessionId, item.filename),
+      })));
+      notify(`Imagen pegada y adjuntada: ${imageFiles.length}`, "ok");
+    } catch (error) {
+      notify(`Error al pegar imagen: ${error.message}`, "error");
+    } finally {
+      setIsUploadingSessionDocs(false);
     }
   };
 
@@ -542,6 +756,21 @@ function App() {
     await Promise.all([loadDocuments(), loadHealth()]);
   };
 
+  const handleDeleteDocument = async (documentId) => {
+    if (!documentId) return;
+    const first = window.confirm("¿Eliminar este documento? Esta acción no se puede deshacer.");
+    if (!first) return;
+    const second = window.confirm("¿Estás seguro? Confirma nuevamente para eliminar.");
+    if (!second) return;
+    try {
+      await request(`/documents/${encodeURIComponent(documentId)}`, { method: "DELETE" });
+      notify(`Documento ${documentId} eliminado`, "ok");
+      await Promise.all([loadDocuments(), loadHealth()]);
+    } catch (err) {
+      notify(`Error al eliminar documento: ${err.message}`, "error");
+    }
+  };
+
   const deleteSession = async (id) => {
     await request(`/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
     if (sessionId === id) {
@@ -567,6 +796,7 @@ function App() {
     }
     await request(`/documents/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
     notify("Adjuntos de sesion eliminados", "ok");
+    setPendingAttachments([]);
     await loadSessionDocuments(sessionId);
   };
 
@@ -705,14 +935,29 @@ function App() {
       llm_provider: provider || null,
       model_name: model || null,
       temperature: Number(temperature),
-      session_document_ids: sessionDocuments.map((item) => item.document_id).filter(Boolean)
+      session_document_ids: sessionDocuments.map((item) => item.document_id).filter(Boolean),
+      session_attachments: pendingAttachments.map((item) => ({
+        document_id: item.document_id || null,
+        filename: item.filename || null,
+        file_type: item.file_type || null,
+        source_url: attachmentSourceUrl(item) || null,
+      }))
     };
 
     const userMessage = { role: "user", content: message, sources: [] };
+    const draftAttachments = pendingAttachments.map((item) => ({ ...item }));
+    const attachmentMessage = draftAttachments.length > 0
+      ? {
+          role: "system",
+          content: "",
+          sources: [],
+          attachments: draftAttachments
+        }
+      : null;
     const assistantPlaceholder = { role: "assistant", content: "", sources: [] };
-    const assistantIndex = messages.length + 1;
+    const assistantIndex = messages.length + 1 + (attachmentMessage ? 1 : 0);
 
-    setMessages((current) => [...current, userMessage, assistantPlaceholder]);
+    setMessages((current) => [...current, userMessage, ...(attachmentMessage ? [attachmentMessage] : []), assistantPlaceholder]);
     setInput("");
     setIsSending(true);
     shouldStickToBottomRef.current = true;
@@ -720,6 +965,7 @@ function App() {
     try {
       await streamChat(payload, assistantIndex);
       await loadSessions(sessionSearch);
+      setPendingAttachments([]);
     } catch (error) {
       notify(`Error de chat: ${error.message}`, "error");
       setMessages((current) => {
@@ -783,6 +1029,7 @@ function App() {
     updateScrollState();
   }, [messages]);
 
+
   useEffect(() => {
     updateScrollState();
   }, [hasMessages]);
@@ -800,19 +1047,7 @@ function App() {
           {sidebarOpen && <button className="new-chat-btn" onClick={createNewConversation}>Nueva conversacion</button>}
         </div>
 
-        {sidebarOpen && (
-          <input
-            className="search-input"
-            placeholder="Buscar historial"
-            value={sessionSearch}
-            onChange={(event) => setSessionSearch(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                loadSessions(sessionSearch).catch((error) => notify(error.message, "error"));
-              }
-            }}
-          />
-        )}
+        { /* Search input removed — historial search disabled in sidebar */ }
 
         <div className="session-list">
           {sidebarOpen && <div className="section-title">Conversaciones</div>}
@@ -838,7 +1073,7 @@ function App() {
             <button className="sidebar-menu-trigger" onClick={toggleHelpMenu} title="Configuracion y ayuda">
               ⚙
             </button>
-            {sidebarOpen && <span>Configuracion y ayuda</span>}
+            {sidebarOpen && <span>Configuracion</span>}
           </div>
 
           {helpMenuOpen && (
@@ -884,9 +1119,22 @@ function App() {
           <div className="messages-stack">
             {messages.map((item, index) => (
               <article key={`${item.role}-${index}`} className={`bubble ${item.role}`}>
-                {String(item.role || "").toLowerCase() !== "user"
+                {String(item.role || "").toLowerCase() !== "user" && String(item.content || "").trim().length > 0
                   ? <MarkdownContent content={item.content} enabled={markdownRendering} />
-                  : <p>{item.content}</p>}
+                  : String(item.role || "").toLowerCase() === "user"
+                    ? <p>{item.content}</p>
+                    : null}
+                {Array.isArray(item.attachments) && item.attachments.length > 0 && (
+                  <div className="message-attachments">
+                    {item.attachments.map((attachment, attachmentIndex) => (
+                      <AttachmentPreview
+                        key={`${attachment.filename || attachmentIndex}-${attachmentIndex}`}
+                        item={attachment}
+                        onOpen={openAttachmentViewer}
+                      />
+                    ))}
+                  </div>
+                )}
                 <SourceReferences sources={item.sources} />
               </article>
             ))}
@@ -917,6 +1165,7 @@ function App() {
               value={input}
               onChange={(event) => setInput(event.target.value)}
               placeholder="Pregunta a Agile Assistant"
+              onPaste={handleSessionPaste}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
@@ -932,26 +1181,37 @@ function App() {
                   Subiendo adjuntos...
                 </span>
               )}
-              {sessionDocuments.length === 0 ? (
-                <span className="attachments-empty">Sin adjuntos de sesion</span>
-              ) : (
-                sessionDocuments.map((item) => {
-                  const docId = item.document_id || item.file_hash || item.filename;
-                  return (
+              {pendingAttachments.map((item, index) => {
+                const image = String(item.file_type || "").toLowerCase().startsWith("image/") || /^(png|jpg|jpeg|webp|gif)$/i.test(String(item.file_type || ""));
+                return (
+                  <div key={`${item.filename || index}-${index}`} className={`attachment-card preview ${image ? "image" : "document"}`}>
+                    <span className="attachment-card-body">
+                      <span className="attachment-name">{attachmentLabel(item)}</span>
+                      <span className="attachment-kind">{attachmentKindLabel(item)}</span>
+                    </span>
+                    {image && attachmentSourceUrl(item) && (
+                      <button
+                        type="button"
+                        className="attachment-thumb-button"
+                        onClick={() => openAttachmentViewer(item)}
+                        title="Ver imagen"
+                      >
+                        <img className="attachment-thumb" src={attachmentSourceUrl(item)} alt={attachmentLabel(item)} />
+                      </button>
+                    )}
+                    {!image && <span className="attachment-icon" aria-hidden="true">📎</span>}
                     <button
-                      key={docId}
-                      className="attachment-chip"
-                      title="Eliminar adjunto de sesion"
-                      onClick={() => deleteSessionDocument(docId)}
+                      type="button"
+                      className="attachment-remove-btn"
+                      onClick={() => removePendingAttachment(index)}
+                      title="Quitar adjunto"
+                      aria-label={`Quitar ${attachmentLabel(item)}`}
                     >
-                      {item.filename || "Documento"} ×
+                      ×
                     </button>
-                  );
-                })
-              )}
-              {sessionDocuments.length > 0 && (
-                <button className="ghost-btn small-btn" onClick={clearSessionDocuments}>Limpiar adjuntos</button>
-              )}
+                  </div>
+                );
+              })}
             </div>
 
             <div className="input-toolbar">
@@ -1042,25 +1302,33 @@ function App() {
                       </div>
                       <p><span className="doc-label">Origen:</span> {item.source || "Sin origen"}</p>
                       <p><span className="doc-label">ID:</span> <code>{documentId}</code></p>
+                      <div className="doc-actions">
+                        <button className="danger-btn" onClick={() => handleDeleteDocument(documentId)}>Eliminar</button>
+                      </div>
                     </article>
                   );
                 })
               )}
             </div>
 
-            <div className="doc-delete-row">
-              <input
-                value={deleteDocId}
-                placeholder="Document ID"
-                onChange={(event) => setDeleteDocId(event.target.value)}
-              />
-              <button className="ghost-btn" onClick={deleteDocumentById}>Eliminar por ID</button>
-            </div>
+            {/* Eliminacion por ID eliminada; ahora cada documento tiene su boton de borrar con doble confirmacion */}
 
             <div className="panel-actions">
               <button className="ghost-btn" onClick={() => setDocsOpen(false)}>Cerrar</button>
               <button className="danger-btn" onClick={clearDocuments}>Vaciar todo</button>
             </div>
+          </section>
+        </div>
+      )}
+
+      {attachmentViewer && (
+        <div className="overlay attachment-viewer-overlay" onClick={closeAttachmentViewer}>
+          <section className="panel attachment-viewer-panel" onClick={(event) => event.stopPropagation()}>
+            <div className="attachment-viewer-header">
+              <strong>{attachmentViewer.label}</strong>
+              <button type="button" className="ghost-btn" onClick={closeAttachmentViewer}>Cerrar</button>
+            </div>
+            <img className="attachment-viewer-image" src={attachmentViewer.src} alt={attachmentViewer.label} />
           </section>
         </div>
       )}
