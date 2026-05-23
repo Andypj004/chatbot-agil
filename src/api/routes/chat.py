@@ -137,6 +137,7 @@ async def chat(request: ChatRequest):
                     used_rag=final_payload.get("used_rag"),
                     sources=final_payload.get("sources") or [],
                 )
+                session_manager.record_source_citations(session_id, final_payload.get("sources") or [])
 
                 yield (
                     "data: "
@@ -165,6 +166,7 @@ async def chat(request: ChatRequest):
             used_rag=result.get("used_rag"),
             sources=result.get("sources") or [],
         )
+        session_manager.record_source_citations(session_id, result.get("sources") or [])
 
         session_manager.record_concepts(session_id, request.message, result["response"])
 
