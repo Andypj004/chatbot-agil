@@ -2,24 +2,25 @@
 
 from typing import Optional, Dict, Any, List, Iterator
 import base64
+import json
+import re
 from pathlib import Path
+import unicodedata
 
 import httpx
 from langchain.schema import HumanMessage
 
+from src.core import PromptManager, classify_question
+from src.core.forms.form_manager import form_manager
+from src.core.forms.default_forms import register_default_forms
 from src.llm.base import BaseLLMProvider
 from src.rag.retriever import RAGRetriever
 from src.core.config import settings
 from src.core.logger import get_logger
+from src.memory.concept_tracker import build_history_note, extract_concepts
 from src.llm.providers.ollama_provider import _candidate_base_urls, _is_ollama_reachable
 
 logger = get_logger()
-
-_SYSTEM_PROMPT = (
-    "Eres un asistente experto en metodologías ágiles (Scrum, Kanban, XP, SAFe, Lean, etc.). "
-    "Responde siempre en español, de forma clara, precisa y detallada. "
-    "Si la pregunta no está relacionada con metodologías ágiles, respóndela igualmente en español."
-)
 
 _IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
 _IMAGE_MIME = {
@@ -31,7 +32,7 @@ _IMAGE_MIME = {
 
 
 class ChatbotAgent:
-    """Chatbot agent optimized for direct LLM and RAG flows."""
+    """Chatbot agent optimized for direct LLM and RAG flows, including form commands."""
 
     def __init__(
         self,
@@ -49,12 +50,106 @@ class ChatbotAgent:
         self.llm_provider = llm_provider
         self.rag_retriever = rag_retriever
         self.enable_memory = enable_memory
+        self.prompt_manager = PromptManager()
+        register_default_forms(form_manager)
 
         logger.info(
             "Chatbot agent initialized with fast path, "
             f"rag={'enabled' if rag_retriever else 'disabled'}, "
             f"memory={'disabled' if not enable_memory else 'not_persisted'}"
         )
+
+    @staticmethod
+    def _parse_form_command(message: str) -> Optional[Dict[str, str]]:
+        text = message.strip()
+        lowered = text.lower()
+
+        if lowered.startswith("/form start ") or lowered.startswith("form start "):
+            parts = text.split(None, 2)
+            if len(parts) < 3:
+                return {"error": "Missing form id. Use: /form start <form_id>."}
+            return {"action": "start", "form_id": parts[2].strip()}
+
+        if lowered.startswith("/form answer ") or lowered.startswith("form answer "):
+            parts = text.split(None, 2)
+            if len(parts) < 3:
+                return {"error": "Missing payload. Use: /form answer <form_id> <field>=<value>."}
+            rest = parts[2].strip()
+            subparts = rest.split(None, 1)
+            if len(subparts) < 2:
+                return {"error": "Missing field answer. Use: /form answer <form_id> <field>=<value>."}
+            form_id = subparts[0].strip()
+            assignment = subparts[1].strip()
+            if "=" in assignment:
+                name, value = assignment.split("=", 1)
+            elif ":" in assignment:
+                name, value = assignment.split(":", 1)
+            else:
+                return {"error": "Missing separator. Use: <field>=<value> or <field>:<value>."}
+            return {
+                "action": "answer",
+                "form_id": form_id,
+                "name": name.strip(),
+                "value": value.strip(),
+            }
+
+        return None
+
+    def _format_form_question(self, form_id: str, payload: Dict[str, Any]) -> str:
+        if payload.get("completed"):
+            return f"Formulario '{form_id}' completado."
+
+        label = payload.get("label") or payload.get("name")
+        name = payload.get("name")
+        return f"Formulario '{form_id}': {label} (campo: {name})."
+
+    def _format_form_result(self, form_id: str, result: Dict[str, Any]) -> str:
+        if not result.get("ok"):
+            return f"Error de formulario: {result.get('error')}."
+
+        if result.get("completed"):
+            answers = result.get("answers") or {}
+            summary = ", ".join(f"{k}={v}" for k, v in answers.items())
+            return f"Formulario '{form_id}' completado. Respuestas: {summary}."
+
+        next_payload = result.get("next") or {}
+        return f"Respuesta registrada. {self._format_form_question(form_id, next_payload)}"
+
+    def _handle_form_command(
+        self,
+        command: Dict[str, str],
+        session_id: Optional[str],
+        session_manager: Optional[Any],
+    ) -> Dict[str, Any]:
+        if command.get("error"):
+            response = command["error"]
+        elif not session_id or session_manager is None:
+            response = "Missing session context. Provide session_id to use forms."
+        else:
+            form_id = command.get("form_id") or ""
+            try:
+                if command.get("action") == "start":
+                    payload = form_manager.start_form(form_id, session_id, session_manager=session_manager)
+                    response = self._format_form_question(form_id, payload)
+                else:
+                    payload = form_manager.answer(
+                        form_id,
+                        session_id,
+                        command.get("name") or "",
+                        command.get("value"),
+                        session_manager=session_manager,
+                    )
+                    response = self._format_form_result(form_id, payload)
+            except KeyError as exc:
+                response = f"Formulario no encontrado: {exc}."
+
+        return {
+            "response": response,
+            "provider": self.llm_provider.get_provider_name(),
+            "model": self.llm_provider.model_name,
+            "used_rag": False,
+            "sources": [],
+        }
 
     def _build_conversation_block(self, conversation_messages: Optional[List[Dict[str, Any]]]) -> str:
         """Format previous messages as a compact context block."""
@@ -75,42 +170,96 @@ class ChatbotAgent:
 
         return "\n".join(lines[-12:])
 
+    @staticmethod
+    def _expand_rag_query(message: str) -> str:
+        """Return the original message unchanged.
+
+        Query expansion was removed because it injected terms the user did not ask for
+        and made the response less faithful to the corpus evidence.
+        """
+        return message
+
+    def _invoke_llm(self, prompt: str) -> str:
+        llm = self.llm_provider.get_llm()
+        result = llm.invoke(prompt)
+        return result.content if hasattr(result, "content") else result
+
     def _build_direct_prompt(
         self,
         message: str,
         conversation_messages: Optional[List[Dict[str, Any]]] = None,
+        rag_hint: Optional[str] = None,
+        history_note: Optional[str] = None,
     ) -> str:
         conversation_block = self._build_conversation_block(conversation_messages)
-        if conversation_block:
-            return (
-                f"{_SYSTEM_PROMPT}\n\n"
-                "Contexto conversacional reciente:\n"
-                f"{conversation_block}\n\n"
-                f"Pregunta actual: {message}\n\n"
-                "Respuesta:"
-            )
-        return f"{_SYSTEM_PROMPT}\n\nPregunta: {message}\n\nRespuesta:"
+        return self.prompt_manager.build_direct_prompt(
+            message=message,
+            conversation_block=conversation_block or None,
+            rag_hint=rag_hint,
+            history_note=history_note,
+        )
+
+    def _build_socratic_prompt(
+        self,
+        message: str,
+        conversation_messages: Optional[List[Dict[str, Any]]] = None,
+        rag_hint: Optional[str] = None,
+        history_note: Optional[str] = None,
+    ) -> str:
+        conversation_block = self._build_conversation_block(conversation_messages)
+        return self.prompt_manager.build_socratic_prompt(
+            message=message,
+            conversation_block=conversation_block or None,
+            rag_hint=rag_hint,
+            history_note=history_note,
+        )
 
     def _generate_direct_response(
         self,
         message: str,
         conversation_messages: Optional[List[Dict[str, Any]]] = None,
+        rag_hint: Optional[str] = None,
+        history_note: Optional[str] = None,
     ) -> str:
         """Generate a direct response without orchestration overhead."""
-        llm = self.llm_provider.get_llm()
-        prompt = self._build_direct_prompt(message, conversation_messages)
-        result = llm.invoke(prompt)
-        # BaseChatModel.invoke() returns an AIMessage; BaseLLM.invoke() returns str.
-        return result.content if hasattr(result, "content") else result
+        prompt = self._build_direct_prompt(
+            message=message,
+            conversation_messages=conversation_messages,
+            rag_hint=rag_hint,
+            history_note=history_note,
+        )
+        return self._invoke_llm(prompt)
+
+    def _generate_socratic_response(
+        self,
+        message: str,
+        conversation_messages: Optional[List[Dict[str, Any]]] = None,
+        rag_hint: Optional[str] = None,
+        history_note: Optional[str] = None,
+    ) -> str:
+        prompt = self._build_socratic_prompt(
+            message=message,
+            conversation_messages=conversation_messages,
+            rag_hint=rag_hint,
+            history_note=history_note,
+        )
+        return self._invoke_llm(prompt)
 
     def _generate_direct_response_stream(
         self,
         message: str,
         conversation_messages: Optional[List[Dict[str, Any]]] = None,
+        rag_hint: Optional[str] = None,
+        history_note: Optional[str] = None,
     ) -> Iterator[str]:
         """Yield direct response tokens/chunks as they arrive."""
         llm = self.llm_provider.get_llm()
-        prompt = self._build_direct_prompt(message, conversation_messages)
+        prompt = self._build_direct_prompt(
+            message=message,
+            conversation_messages=conversation_messages,
+            rag_hint=rag_hint,
+            history_note=history_note,
+        )
 
         if hasattr(llm, "stream"):
             try:
@@ -123,7 +272,12 @@ class ChatbotAgent:
                 logger.warning(f"LLM native streaming failed, falling back to chunked text: {exc}")
 
         # Fallback for models/providers without native streaming.
-        full = self._generate_direct_response(message, conversation_messages)
+        full = self._generate_direct_response(
+            message,
+            conversation_messages,
+            rag_hint=rag_hint,
+            history_note=history_note,
+        )
         for token in full.split(" "):
             if token:
                 yield f"{token} "
@@ -145,12 +299,13 @@ class ChatbotAgent:
         rag_hint: Optional[str],
     ) -> str:
         conversation_block = self._build_conversation_block(conversation_messages)
-        prompt_parts = [_SYSTEM_PROMPT]
-        if rag_hint:
-            prompt_parts.append("Contexto RAG global relevante:\n" + rag_hint)
-        if conversation_block:
-            prompt_parts.append("Contexto conversacional reciente:\n" + conversation_block)
-        prompt_parts.append("Pregunta actual del usuario:\n" + message)
+        prompt_parts = [
+            self.prompt_manager.build_direct_prompt(
+                message=message,
+                conversation_block=conversation_block or None,
+                rag_hint=rag_hint,
+            )
+        ]
         prompt_parts.append(
             "Analiza las imagenes adjuntas directamente (sin OCR) y responde con base en su contenido visual."
         )
@@ -216,17 +371,143 @@ class ChatbotAgent:
         for item in raw_sources:
             metadata = item.get("metadata") or {}
             content = (item.get("content") or "").strip()
+            page = metadata.get("page")
+            if page is None:
+                page = metadata.get("page_label")
+            try:
+                page = int(page) if page is not None and str(page).isdigit() else None
+            except Exception:
+                page = None
+
+            section = metadata.get("section") or metadata.get("heading") or metadata.get("title")
+            relevance = metadata.get("relevance") or metadata.get("score")
+            try:
+                relevance = float(relevance) if relevance is not None else None
+            except Exception:
+                relevance = None
+
             normalized.append(
                 {
                     "document_id": metadata.get("file_hash") or metadata.get("chunk_id"),
                     "filename": metadata.get("filename"),
                     "source": metadata.get("source"),
+                    "page": page,
+                    "section": section,
                     "scope": metadata.get("scope", "global_rag"),
                     "session_id": metadata.get("session_id"),
+                    "relevance": relevance,
                     "excerpt": content[:280],
                 }
             )
         return normalized
+
+    @staticmethod
+    def _normalize_citation_text(value: Any) -> str:
+        text = unicodedata.normalize("NFKD", str(value or "").lower())
+        text = "".join(char for char in text if not unicodedata.combining(char))
+        return " ".join(text.split())
+
+    @classmethod
+    def _source_citation_key(cls, item: Dict[str, Any]) -> str:
+        metadata = item.get("metadata") or {}
+        content = (item.get("content") or "").strip()[:280]
+        payload = [
+            cls._normalize_citation_text(metadata.get("file_hash") or metadata.get("chunk_id") or metadata.get("document_id")),
+            cls._normalize_citation_text(metadata.get("filename")),
+            cls._normalize_citation_text(metadata.get("source")),
+            cls._normalize_citation_text(metadata.get("page") or metadata.get("page_label")),
+            cls._normalize_citation_text(metadata.get("section") or metadata.get("heading") or metadata.get("title")),
+            cls._normalize_citation_text(metadata.get("scope") or "global_rag"),
+            cls._normalize_citation_text(content),
+        ]
+        return json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
+
+    @staticmethod
+    def _normalize_text(value: str) -> str:
+        text = unicodedata.normalize("NFKD", str(value or "").lower())
+        text = "".join(char for char in text if not unicodedata.combining(char))
+        return " ".join(text.split())
+
+    @classmethod
+    def _source_relevance_score(cls, response_text: str, source_text: str, section: Optional[str] = None) -> float:
+        response = cls._normalize_text(response_text)
+        source = cls._normalize_text(source_text)
+
+        if not response or not source:
+            return 0.0
+
+        if source in response:
+            return 1.0
+
+        response_tokens = {token for token in re.findall(r"\w+", response) if len(token) > 3}
+        source_tokens = [token for token in re.findall(r"\w+", source) if len(token) > 3]
+        if not source_tokens:
+            return 0.0
+
+        overlap = sum(1 for token in source_tokens if token in response_tokens) / len(source_tokens)
+
+        phrase_bonus = 0.0
+        for window in range(min(12, len(source_tokens)), 4, -1):
+            for start in range(0, len(source_tokens) - window + 1):
+                phrase = " ".join(source_tokens[start : start + window])
+                if phrase and phrase in response:
+                    phrase_bonus = max(phrase_bonus, min(0.95, 0.2 + window * 0.06))
+                    break
+            if phrase_bonus:
+                break
+
+        section_bonus = 0.0
+        if section:
+            normalized_section = cls._normalize_text(section)
+            if normalized_section and normalized_section in response:
+                section_bonus = 0.08
+
+        return min(1.0, max(overlap * 0.85, phrase_bonus) + section_bonus)
+
+    @classmethod
+    def _filter_relevant_sources(
+        cls,
+        response_text: str,
+        raw_sources: List[Dict[str, Any]],
+        seen_citation_keys: Optional[set[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        scored_sources: Dict[str, Dict[str, Any]] = {}
+
+        for item in raw_sources:
+            metadata = item.get("metadata") or {}
+            content = (item.get("content") or "").strip()
+            section = metadata.get("section") or metadata.get("heading") or metadata.get("title")
+            score = cls._source_relevance_score(response_text, content, section=section)
+            if score < 0.25:
+                continue
+
+            citation_key = cls._source_citation_key(item)
+            existing = scored_sources.get(citation_key)
+            candidate = {
+                **item,
+                "metadata": {
+                    **metadata,
+                    "relevance": score,
+                },
+            }
+
+            if existing is None or score > float((existing.get("metadata") or {}).get("relevance") or 0.0):
+                scored_sources[citation_key] = candidate
+
+        ordered_sources = list(scored_sources.values())
+        seen_keys = seen_citation_keys or set()
+
+        def _sort_key(item: Dict[str, Any]) -> tuple[bool, float, int]:
+            metadata = item.get("metadata") or {}
+            citation_key = cls._source_citation_key(item)
+            return (
+                citation_key not in seen_keys,
+                float(metadata.get("relevance") or 0.0),
+                len(str(item.get("content") or "")),
+            )
+
+        ordered_sources.sort(key=_sort_key, reverse=True)
+        return ordered_sources
 
     def chat(
         self,
@@ -235,6 +516,7 @@ class ChatbotAgent:
         conversation_messages: Optional[List[Dict[str, Any]]] = None,
         session_id: Optional[str] = None,
         session_documents: Optional[List[Dict[str, Any]]] = None,
+        session_manager: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """Send a message to the chatbot.
 
@@ -249,12 +531,32 @@ class ChatbotAgent:
         logger.info(f"Options: use_rag={use_rag}")
 
         try:
+            command = self._parse_form_command(message)
+            if command:
+                return self._handle_form_command(command, session_id, session_manager)
+
+            classification = classify_question(message)
             used_rag = False
 
             sources: List[Dict[str, Any]] = []
+            concepts = extract_concepts(message)
+            repeated_concepts: List[str] = []
+            if session_manager is not None and session_id and concepts:
+                for concept in concepts:
+                    if session_manager.has_seen_concept(session_id, concept):
+                        repeated_concepts.append(concept)
+
+            history_note = build_history_note(concepts, repeated=bool(repeated_concepts)) if concepts else None
+            recent_citation_keys: set[str] = set()
+            if session_manager is not None and session_id and hasattr(session_manager, "get_recent_source_citation_keys"):
+                try:
+                    recent_citation_keys = set(session_manager.get_recent_source_citation_keys(session_id))
+                except Exception:
+                    recent_citation_keys = set()
+
 
             rag_hint: Optional[str] = None
-            if use_rag and self.rag_retriever and self.rag_retriever.has_documents():
+            if not classification.is_project_context and use_rag and self.rag_retriever and self.rag_retriever.has_documents():
                 contextual_message = message
                 conversation_block = self._build_conversation_block(conversation_messages)
                 if conversation_block:
@@ -270,13 +572,19 @@ class ChatbotAgent:
                     session_id=session_id,
                 )
                 rag_hint = rag_result["answer"]
-                sources = self._extract_sources(rag_result.get("sources") or [])
                 used_rag = True
 
             image_documents = [item for item in (session_documents or []) if self._is_image_document(item)]
             image_paths = [str(item.get("source") or "") for item in image_documents if item.get("source")]
 
-            if image_paths:
+            if classification.is_project_context:
+                response = self._generate_socratic_response(
+                    message,
+                    conversation_messages=conversation_messages,
+                    rag_hint=rag_hint,
+                    history_note=history_note,
+                )
+            elif image_paths:
                 multimodal_prompt = self._build_multimodal_prompt(
                     message=message,
                     conversation_messages=conversation_messages,
@@ -287,9 +595,22 @@ class ChatbotAgent:
                 response = self._generate_direct_response(
                     message,
                     conversation_messages=conversation_messages,
+                    rag_hint=rag_hint,
+                    history_note=history_note,
                 )
             else:
                 response = rag_hint
+
+            if sources or used_rag:
+                raw_sources = rag_result.get("sources") if 'rag_result' in locals() else []
+                filtered_sources = self._filter_relevant_sources(
+                    response,
+                    raw_sources or [],
+                    seen_citation_keys=recent_citation_keys,
+                )
+                if not filtered_sources and raw_sources:
+                    filtered_sources = raw_sources
+                sources = self._extract_sources(filtered_sources)[: settings.top_k_results]
 
             logger.info("Chat response generated successfully")
 
@@ -329,13 +650,48 @@ class ChatbotAgent:
         conversation_messages: Optional[List[Dict[str, Any]]] = None,
         session_id: Optional[str] = None,
         session_documents: Optional[List[Dict[str, Any]]] = None,
+        session_manager: Optional[Any] = None,
     ) -> Iterator[Dict[str, Any]]:
         """Yield partial chunks and a final payload for streaming responses."""
         used_rag = False
         sources: List[Dict[str, Any]] = []
+        response_parts: List[str] = []
 
+        classification = classify_question(message)
         rag_hint: Optional[str] = None
-        if use_rag and self.rag_retriever and self.rag_retriever.has_documents():
+        command = self._parse_form_command(message)
+        if command:
+            payload = self._handle_form_command(command, session_id, session_manager)
+            response = payload.get("response") or ""
+            for token in response.split(" "):
+                if token:
+                    yield {"type": "delta", "content": f"{token} "}
+                    response_parts.append(f"{token} ")
+            yield {
+                "type": "final",
+                "provider": payload.get("provider"),
+                "model": payload.get("model"),
+                "used_rag": False,
+                "sources": [],
+                "response_type": "form",
+            }
+            return
+        concepts = extract_concepts(message)
+        repeated_concepts: List[str] = []
+        if session_manager is not None and session_id and concepts:
+            for concept in concepts:
+                if session_manager.has_seen_concept(session_id, concept):
+                    repeated_concepts.append(concept)
+
+        history_note = build_history_note(concepts, repeated=bool(repeated_concepts)) if concepts else None
+        recent_citation_keys: set[str] = set()
+        if session_manager is not None and session_id and hasattr(session_manager, "get_recent_source_citation_keys"):
+            try:
+                recent_citation_keys = set(session_manager.get_recent_source_citation_keys(session_id))
+            except Exception:
+                recent_citation_keys = set()
+
+        if not classification.is_project_context and use_rag and self.rag_retriever and self.rag_retriever.has_documents():
             contextual_message = message
             conversation_block = self._build_conversation_block(conversation_messages)
             if conversation_block:
@@ -351,13 +707,23 @@ class ChatbotAgent:
                 session_id=session_id,
             )
             rag_hint = rag_result["answer"]
-            sources = self._extract_sources(rag_result.get("sources") or [])
             used_rag = True
 
         image_documents = [item for item in (session_documents or []) if self._is_image_document(item)]
         image_paths = [str(item.get("source") or "") for item in image_documents if item.get("source")]
 
-        if image_paths:
+        if classification.is_project_context:
+            response = self._generate_socratic_response(
+                message,
+                conversation_messages=conversation_messages,
+                rag_hint=rag_hint,
+                history_note=history_note,
+            )
+            for token in response.split(" "):
+                if token:
+                    yield {"type": "delta", "content": f"{token} "}
+                    response_parts.append(f"{token} ")
+        elif image_paths:
             response = self._generate_multimodal_response(
                 prompt=self._build_multimodal_prompt(
                     message=message,
@@ -369,23 +735,40 @@ class ChatbotAgent:
             for token in response.split(" "):
                 if token:
                     yield {"type": "delta", "content": f"{token} "}
+                    response_parts.append(f"{token} ")
         elif rag_hint is not None:
             for token in rag_hint.split(" "):
                 if token:
                     yield {"type": "delta", "content": f"{token} "}
+                    response_parts.append(f"{token} ")
         else:
             for chunk in self._generate_direct_response_stream(
                 message,
                 conversation_messages=conversation_messages,
+                rag_hint=rag_hint,
+                history_note=history_note,
             ):
                 yield {"type": "delta", "content": chunk}
+                response_parts.append(chunk)
+
+        full_response = "".join(response_parts).strip()
+        raw_sources = rag_result.get("sources") if 'rag_result' in locals() else []
+        filtered_sources = self._filter_relevant_sources(
+            full_response,
+            raw_sources or [],
+            seen_citation_keys=recent_citation_keys,
+        )
+        if not filtered_sources and raw_sources:
+            filtered_sources = raw_sources
+        filtered_sources = self._extract_sources(filtered_sources)[: settings.top_k_results]
 
         yield {
             "type": "final",
             "provider": self.llm_provider.get_provider_name(),
             "model": self.llm_provider.model_name,
             "used_rag": used_rag,
-            "sources": sources,
+            "sources": filtered_sources,
+            "response_type": "socratic" if classification.is_project_context else "direct",
         }
 
     def clear_memory(self):
