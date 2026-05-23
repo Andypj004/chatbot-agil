@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     default_model: str = Field(default="gpt-4-turbo-preview", alias="DEFAULT_MODEL")
     chroma_persist_dir: str = Field(default="./chroma_db", alias="CHROMA_PERSIST_DIR")
     embedding_model: str = Field(
-        default="sentence-transformers/all-MiniLM-L6-v2",
+        default="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
         alias="EMBEDDING_MODEL"
     )
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     chunk_overlap: int = Field(default=200, alias="CHUNK_OVERLAP")
     top_k_results: int = Field(default=5, alias="TOP_K_RESULTS")
     rag_context_max_chars: int = Field(default=6000, alias="RAG_CONTEXT_MAX_CHARS")
+    rag_max_chunks_per_file: int = Field(default=3, alias="RAG_MAX_CHUNKS_PER_FILE")
 
     # Conversation history / memory
     conversation_db_path: str = Field(

@@ -1,6 +1,8 @@
 """RAG retriever for combining vector search with LLM"""
 
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
+import re
+import unicodedata
 
 from src.rag.vector_store import VectorStore
 from src.llm.base import BaseLLMProvider
@@ -136,54 +138,168 @@ Respuesta en español:"""
             ]
         )
 
+    @staticmethod
+    def _normalize_for_ranking(text: str) -> str:
+        normalized = unicodedata.normalize("NFKD", text.lower().strip())
+        normalized = re.sub(r"[\u0300-\u036f]", "", normalized)
+        normalized = re.sub(r"[^a-z0-9\s]+", " ", normalized)
+        return " ".join(normalized.split())
+
+    @classmethod
+    def _ranking_keywords(cls, query: str) -> List[str]:
+        normalized = cls._normalize_for_ranking(query)
+        keywords = {token for token in re.findall(r"\b\w+\b", normalized) if len(token) > 2}
+        return sorted(keywords, key=len, reverse=True)
+
+    @classmethod
+    def _query_alignment_score(cls, query: str, doc: Document) -> float:
+        metadata = doc.metadata or {}
+        content = cls._normalize_for_ranking(doc.page_content or "")
+        filename = cls._normalize_for_ranking(str(metadata.get("filename") or ""))
+        source = cls._normalize_for_ranking(str(metadata.get("source") or ""))
+        haystack = f"{filename} {source} {content}"
+        query_norm = cls._normalize_for_ranking(query)
+        if not query_norm or not haystack.strip():
+            return 0.0
+
+        query_tokens = [token for token in re.findall(r"\b\w+\b", query_norm) if len(token) > 2]
+        if not query_tokens:
+            return 0.0
+
+        unique_tokens = list(dict.fromkeys(query_tokens))
+        overlap = sum(1 for token in unique_tokens if token in haystack)
+        score = overlap / max(len(unique_tokens), 1)
+
+        if query_norm in haystack:
+            score += 1.5
+
+        filename_hits = sum(1 for token in unique_tokens if token in filename)
+        source_hits = sum(1 for token in unique_tokens if token in source)
+        score += min(filename_hits * 0.2, 0.8)
+        score += min(source_hits * 0.1, 0.4)
+
+        if "title" in metadata and metadata.get("title"):
+            title_text = cls._normalize_for_ranking(str(metadata.get("title") or ""))
+            title_hits = sum(1 for token in unique_tokens if token in title_text)
+            score += min(title_hits * 0.25, 1.0)
+
+        if len(unique_tokens) >= 4:
+            score += min(len(unique_tokens) / 20.0, 0.5)
+
+        return score
+
     def _retrieve_combined_documents(self, query: str, k: int, session_id: Optional[str]) -> List[Document]:
         """Retrieve global docs always, plus session docs when session_id is available."""
         global_quota = max(1, int(round(k * 0.6)))
         session_quota = max(0, k - global_quota)
 
-        global_docs = self.vector_store.similarity_search(
+        logger.debug(f"_retrieve_combined_documents: k={k}, global_quota={global_quota}, session_quota={session_quota}")
+
+        overfetch_global = max(k * 4, global_quota * 4, 12)
+        global_results = self.vector_store.similarity_search_with_score(
             query=query,
-            k=max(global_quota, 1),
+            k=overfetch_global,
             filter={"scope": "global_rag"},
         )
 
-        # Backward compatibility for legacy chunks without explicit scope metadata.
-        if len(global_docs) < global_quota:
-            legacy_candidates = self.vector_store.similarity_search(query=query, k=max(k * 4, 12))
-            for doc in legacy_candidates:
-                metadata = doc.metadata or {}
-                if self._normalize_scope(metadata) == "session_chat":
-                    continue
-                global_docs.append(doc)
-                if len(global_docs) >= global_quota:
-                    break
-
         session_docs: List[Document] = []
         if session_id and session_quota > 0:
-            candidates = self.vector_store.similarity_search(
+            overfetch_session = max(k * 2, session_quota * 4, 8)
+            candidates = self.vector_store.similarity_search_with_score(
                 query=query,
-                k=max(session_quota * 2, session_quota),
+                k=overfetch_session,
                 filter={"session_id": session_id},
             )
-            for doc in candidates:
+            for doc, _score in candidates:
                 metadata = doc.metadata or {}
                 if self._normalize_scope(metadata) != "session_chat":
                     continue
                 session_docs.append(doc)
-                if len(session_docs) >= session_quota:
-                    break
+
+        max_per_file = getattr(settings, "rag_max_chunks_per_file", 3)
+        candidate_entries: dict[str, tuple[Document, float, str]] = {}
+
+        def _ingest_results(results: List[tuple[Document, float]], source_name: str) -> None:
+            for rank, (doc, _score) in enumerate(results):
+                metadata = doc.metadata or {}
+                if source_name == "session" and self._normalize_scope(metadata) != "session_chat":
+                    continue
+
+                key = self._doc_key(doc)
+                if not key:
+                    continue
+
+                file_key = str(metadata.get("file_hash") or metadata.get("filename") or "unknown")
+                base_score = 1.0 / (rank + 1)
+                alignment_score = self._query_alignment_score(query, doc)
+                total_score = base_score + alignment_score
+
+                existing = candidate_entries.get(key)
+                if existing is None or total_score > existing[1]:
+                    candidate_entries[key] = (doc, total_score, file_key)
+
+        _ingest_results(global_results, "global")
+        if session_docs:
+            for doc in session_docs:
+                key = self._doc_key(doc)
+                metadata = doc.metadata or {}
+                if not key:
+                    continue
+                file_key = str(metadata.get("file_hash") or metadata.get("filename") or "unknown")
+                alignment_score = self._query_alignment_score(query, doc)
+                existing = candidate_entries.get(key)
+                total_score = alignment_score + 0.5
+                if existing is None or total_score > existing[1]:
+                    candidate_entries[key] = (doc, total_score, file_key)
+
+        if not candidate_entries:
+            return []
+
+        grouped_by_file: dict[str, List[tuple[float, str, Document]]] = {}
+        for key, (doc, score, file_key) in candidate_entries.items():
+            grouped_by_file.setdefault(file_key, []).append((score, key, doc))
+
+        for entries in grouped_by_file.values():
+            entries.sort(key=lambda item: item[0], reverse=True)
+
+        file_order = sorted(
+            grouped_by_file.items(),
+            key=lambda item: item[1][0][0] if item[1] else 0.0,
+            reverse=True,
+        )
 
         merged: List[Document] = []
-        seen = set()
-        for doc in [*global_docs, *session_docs]:
-            key = self._doc_key(doc)
-            if key in seen:
-                continue
-            seen.add(key)
-            merged.append(doc)
-            if len(merged) >= k:
+        seen: set[str] = set()
+        per_file_counts: dict[str, int] = {}
+
+        while len(merged) < k:
+            progressed = False
+            for file_key, entries in file_order:
+                if not entries:
+                    continue
+
+                count = per_file_counts.get(file_key, 0)
+                if count >= max_per_file:
+                    continue
+
+                score, key, doc = entries.pop(0)
+                if key in seen:
+                    continue
+
+                seen.add(key)
+                merged.append(doc)
+                per_file_counts[file_key] = count + 1
+                progressed = True
+
+                if len(merged) >= k:
+                    break
+
+            if not progressed:
                 break
 
+        logger.debug(
+            f"_retrieve_combined_documents: returned {len(merged)} docs from {len(per_file_counts)} files"
+        )
         return merged
     
     def retrieve_with_scores(
@@ -233,9 +349,15 @@ Respuesta en español:"""
             Dictionary with answer and optional sources
         """
         logger.info(f"Processing RAG query: '{question}'")
+        effective_k = k or self.top_k
         
         # Retrieve relevant documents
-        documents = self.retrieve_documents(query=question, k=k, filter=filter, session_id=session_id)
+        documents = self.retrieve_documents(
+            query=question,
+            k=effective_k,
+            filter=filter,
+            session_id=session_id,
+        )
         
         if not documents:
             logger.warning("No relevant documents found")
@@ -268,12 +390,19 @@ Respuesta en español:"""
         }
         
         if return_sources:
+            source_k = max(effective_k, effective_k * 4)
+            source_documents = self.retrieve_documents(
+                query=question,
+                k=source_k,
+                filter=filter,
+                session_id=session_id,
+            )
             result["sources"] = [
                 {
                     "content": doc.page_content,
                     "metadata": doc.metadata
                 }
-                for doc in documents
+                for doc in source_documents
             ]
         
         logger.info("RAG query completed successfully")

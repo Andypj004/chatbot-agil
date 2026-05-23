@@ -1,0 +1,30 @@
+{
+  "openai": [
+    "gpt-4o-mini",
+    "gpt-4-turbo-preview",
+    "gpt-3.5-turbo"
+  ],
+  "anthropic": [
+    "claude-3-5-haiku-latest",
+    "claude-3-5-sonnet-latest"
+  ],
+  "google": [
+    "gemini-1.5-flash",
+    "gemini-1.5-flash-8b",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-pro"
+  ],
+  "deepseek": [
+    "deepseek-chat",
+    "deepseek-reasoner"
+  ],
+  "ollama": [
+    "llama3.2:3b",
+    "qwen2.5:3b",
+    "phi3:mini",
+    "llava:7b",
+    "llava:13b",
+    "gemma3:4b"
+  ]
+}

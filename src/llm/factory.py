@@ -1,6 +1,8 @@
 """Factory for creating LLM provider instances"""
 
 from typing import Optional
+import json
+import os
 
 from src.core.config import settings
 from src.core.logger import get_logger
@@ -30,6 +32,22 @@ class LLMFactory:
         "deepseek": ["deepseek-chat", "deepseek-reasoner"],
         "ollama": ["llama3.2:3b", "qwen2.5:3b", "phi3:mini", "llava:7b", "llava:13b", "gemma3:4b"],
     }
+
+    # Load external models catalog if available (src/llm/models.json)
+    try:
+        _models_path = os.path.join(os.path.dirname(__file__), "models.json")
+        if os.path.exists(_models_path):
+            with open(_models_path, "r", encoding="utf-8") as _f:
+                _external = json.load(_f)
+                if isinstance(_external, dict):
+                    # sanitize: only lists
+                    cleaned = {k: v for k, v in _external.items() if isinstance(v, list)}
+                    if cleaned:
+                        _provider_models.clear()
+                        _provider_models.update(cleaned)
+                        logger.info("Loaded external LLM model catalog from src/llm/models.json")
+    except Exception:
+        logger.warning("Failed to load external models catalog; using builtin provider list")
     
     @classmethod
     def register_provider(cls, name: str, provider_class: type):
@@ -132,6 +150,11 @@ class LLMFactory:
             Default model name
         """
         provider_name = cls.normalize_provider_name(provider_name)
+        if settings.default_model:
+            provider_models = cls._provider_models.get(provider_name, [])
+            if not provider_models or settings.default_model in provider_models:
+                return settings.default_model
+
         default_models = {
             "openai": "gpt-4-turbo-preview",
             "anthropic": "claude-3-5-sonnet-latest",

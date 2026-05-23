@@ -79,6 +79,14 @@ async def chat(request: ChatRequest):
                 title=_build_human_session_title(request.message),
             )
 
+        if request.session_attachments:
+            session_manager.append_message(
+                session_id=session_id,
+                role="system",
+                text="",
+                attachments=[attachment.model_dump() for attachment in request.session_attachments],
+            )
+
         # Get LLM provider
         llm_provider = get_llm_provider(
             provider_name=request.llm_provider,
@@ -111,6 +119,7 @@ async def chat(request: ChatRequest):
                     conversation_messages=history,
                     session_id=session_id,
                     session_documents=session_documents,
+                    session_manager=session_manager,
                 ):
                     if event.get("type") == "delta":
                         content = event.get("content", "")
@@ -128,6 +137,7 @@ async def chat(request: ChatRequest):
                     used_rag=final_payload.get("used_rag"),
                     sources=final_payload.get("sources") or [],
                 )
+                session_manager.record_source_citations(session_id, final_payload.get("sources") or [])
 
                 yield (
                     "data: "
@@ -144,6 +154,7 @@ async def chat(request: ChatRequest):
             conversation_messages=history,
             session_id=session_id,
             session_documents=session_documents,
+            session_manager=session_manager,
         )
 
         session_manager.append_message(
@@ -155,6 +166,9 @@ async def chat(request: ChatRequest):
             used_rag=result.get("used_rag"),
             sources=result.get("sources") or [],
         )
+        session_manager.record_source_citations(session_id, result.get("sources") or [])
+
+        session_manager.record_concepts(session_id, request.message, result["response"])
 
         result["session_id"] = session_id
         return ChatResponse(**result)

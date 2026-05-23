@@ -9,8 +9,8 @@ services:
     env_file:
       - .env
     environment:
-      DEFAULT_LLM_PROVIDER: ollama
-      DEFAULT_MODEL: llava:7b
+      # DEFAULT_LLM_PROVIDER and DEFAULT_MODEL should be defined in the .env file
+      # to keep a single source of truth for runtime configuration.
       OLLAMA_BASE_URL: http://ollama:11434
       ANONYMIZED_TELEMETRY: "False"
     volumes:
@@ -53,7 +53,7 @@ services:
       ollama:
         condition: service_healthy
     entrypoint: ["ollama"]
-    command: ["pull", "llava:7b"]
+    command: ["pull", "llama3.2:3b"]
     environment:
       OLLAMA_HOST: http://ollama:11434
     volumes:
