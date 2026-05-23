@@ -349,9 +349,15 @@ Respuesta en español:"""
             Dictionary with answer and optional sources
         """
         logger.info(f"Processing RAG query: '{question}'")
+        effective_k = k or self.top_k
         
         # Retrieve relevant documents
-        documents = self.retrieve_documents(query=question, k=k, filter=filter, session_id=session_id)
+        documents = self.retrieve_documents(
+            query=question,
+            k=effective_k,
+            filter=filter,
+            session_id=session_id,
+        )
         
         if not documents:
             logger.warning("No relevant documents found")
@@ -384,12 +390,19 @@ Respuesta en español:"""
         }
         
         if return_sources:
+            source_k = max(effective_k, effective_k * 4)
+            source_documents = self.retrieve_documents(
+                query=question,
+                k=source_k,
+                filter=filter,
+                session_id=session_id,
+            )
             result["sources"] = [
                 {
                     "content": doc.page_content,
                     "metadata": doc.metadata
                 }
-                for doc in documents
+                for doc in source_documents
             ]
         
         logger.info("RAG query completed successfully")

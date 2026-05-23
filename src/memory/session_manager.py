@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 import os
 import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-import json
 import sqlite3
 import threading
+import unicodedata
 
 from src.memory.concept_tracker import extract_concepts
 
@@ -134,6 +135,33 @@ class SessionManager:
                 """
                 CREATE INDEX IF NOT EXISTS idx_session_concepts_session
                 ON session_concepts (session_id, last_mentioned)
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS session_citations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    citation_key TEXT NOT NULL,
+                    document_id TEXT,
+                    filename TEXT,
+                    source TEXT,
+                    page INTEGER,
+                    section TEXT,
+                    scope TEXT,
+                    excerpt TEXT,
+                    mention_count INTEGER NOT NULL DEFAULT 1,
+                    first_seen TEXT NOT NULL,
+                    last_seen TEXT NOT NULL,
+                    UNIQUE(session_id, citation_key),
+                    FOREIGN KEY(session_id) REFERENCES sessions(session_id)
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_session_citations_session
+                ON session_citations (session_id, last_seen)
                 """
             )
             conn.execute(
@@ -455,6 +483,119 @@ class SessionManager:
 
         return unique_concepts
 
+    @staticmethod
+    def _normalize_citation_text(value: Any) -> str:
+        text = unicodedata.normalize("NFKD", str(value or "").lower())
+        text = "".join(char for char in text if not unicodedata.combining(char))
+        return " ".join(text.split())
+
+    @classmethod
+    def _citation_key(cls, citation: Dict[str, Any]) -> str:
+        payload = [
+            cls._normalize_citation_text(citation.get("document_id")),
+            cls._normalize_citation_text(citation.get("filename")),
+            cls._normalize_citation_text(citation.get("source")),
+            cls._normalize_citation_text(citation.get("page")),
+            cls._normalize_citation_text(citation.get("section")),
+            cls._normalize_citation_text(citation.get("scope") or "global_rag"),
+            cls._normalize_citation_text(citation.get("excerpt")),
+        ]
+        return json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
+
+    def record_source_citations(self, session_id: str, citations: List[Dict[str, Any]]) -> List[str]:
+        now = self._now_iso()
+        unique_citations: list[tuple[str, Dict[str, Any]]] = []
+        seen_keys: set[str] = set()
+
+        for citation in citations:
+            key = self._citation_key(citation)
+            if not key or key in seen_keys:
+                continue
+            seen_keys.add(key)
+            unique_citations.append((key, citation))
+
+        if not unique_citations:
+            return []
+
+        with self._lock:
+            with self._connect() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO sessions (session_id, title, created_at, updated_at)
+                    VALUES (?, NULL, ?, ?)
+                    ON CONFLICT(session_id) DO NOTHING
+                    """,
+                    (session_id, now, now),
+                )
+                for key, citation in unique_citations:
+                    page = citation.get("page")
+                    try:
+                        page_value = int(page) if page is not None and str(page).isdigit() else None
+                    except Exception:
+                        page_value = None
+
+                    existing = conn.execute(
+                        """
+                        SELECT mention_count
+                        FROM session_citations
+                        WHERE session_id = ? AND citation_key = ?
+                        """,
+                        (session_id, key),
+                    ).fetchone()
+                    if existing:
+                        conn.execute(
+                            """
+                            UPDATE session_citations
+                            SET mention_count = mention_count + 1,
+                                last_seen = ?
+                            WHERE session_id = ? AND citation_key = ?
+                            """,
+                            (now, session_id, key),
+                        )
+                    else:
+                        conn.execute(
+                            """
+                            INSERT INTO session_citations
+                            (session_id, citation_key, document_id, filename, source, page, section, scope, excerpt, mention_count, first_seen, last_seen)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                            """,
+                            (
+                                session_id,
+                                key,
+                                citation.get("document_id"),
+                                citation.get("filename"),
+                                citation.get("source"),
+                                page_value,
+                                citation.get("section"),
+                                citation.get("scope") or "global_rag",
+                                citation.get("excerpt"),
+                                now,
+                                now,
+                            ),
+                        )
+                conn.execute(
+                    "UPDATE sessions SET updated_at = ? WHERE session_id = ?",
+                    (now, session_id),
+                )
+                conn.commit()
+
+        return [key for key, _citation in unique_citations]
+
+    def get_recent_source_citation_keys(self, session_id: str, limit: int = 25) -> List[str]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT citation_key
+                FROM session_citations
+                WHERE session_id = ?
+                ORDER BY last_seen DESC, mention_count DESC
+                LIMIT ?
+                """,
+                (session_id, limit),
+            ).fetchall()
+
+        return [row["citation_key"] for row in rows]
+
     def has_seen_concept(self, session_id: str, concept: str) -> bool:
         with self._connect() as conn:
             row = conn.execute(
@@ -495,6 +636,7 @@ class SessionManager:
         with self._lock:
             with self._connect() as conn:
                 conn.execute("DELETE FROM session_documents WHERE session_id = ?", (session_id,))
+                conn.execute("DELETE FROM session_citations WHERE session_id = ?", (session_id,))
                 conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
                 conn.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
                 conn.commit()
