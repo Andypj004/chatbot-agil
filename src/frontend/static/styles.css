@@ -703,14 +703,22 @@ textarea::placeholder {
   max-width: 800px;
   margin: 0 auto;
   border: 1px solid var(--border);
-  border-radius: 22px;
+  border-radius: var(--radius-lg);
   background: var(--surface-2);
+  backdrop-filter: var(--blur-md);
+  -webkit-backdrop-filter: var(--blur-md);
   padding: 8px 10px 10px;
   display: grid;
   grid-template-columns: auto 1fr;
   grid-template-rows: auto auto auto;
   gap: 6px 8px;
+  box-shadow: var(--shadow-input);
+  transition: border-color 0.2s;
   align-items: center;
+}
+
+.input-shell:focus-within {
+  border-color: var(--border-focus);
 }
 
 .input-icon {
@@ -1039,13 +1047,14 @@ textarea::placeholder {
   max-height: calc(100vh - 56px);
   overflow: auto;
   border: 1px solid var(--border);
-  border-radius: 22px;
-  background: color-mix(in srgb, var(--surface) 92%, transparent);
-  box-shadow: var(--shadow);
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
   padding: 24px;
   display: grid;
   gap: 18px;
-  backdrop-filter: blur(14px);
+  backdrop-filter: var(--blur-lg);
+  -webkit-backdrop-filter: var(--blur-lg);
 }
 
 .auth-card-header {
