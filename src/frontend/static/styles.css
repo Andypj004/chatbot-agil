@@ -995,7 +995,9 @@ textarea::placeholder {
 .overlay {
   position: fixed;
   inset: 0;
-  background: rgba(10, 10, 10, 0.58);
+  background: rgba(0, 0, 0, 0.50);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   display: grid;
   place-items: center;
   z-index: 45;
@@ -1006,10 +1008,12 @@ textarea::placeholder {
   max-height: 88vh;
   overflow: auto;
   border: 1px solid var(--border);
-  border-radius: 16px;
-  background: var(--surface);
+  border-radius: var(--radius-xl);
+  background: var(--surface-3);
+  backdrop-filter: var(--blur-lg);
+  -webkit-backdrop-filter: var(--blur-lg);
   padding: 18px;
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-card);
   display: grid;
   gap: 10px;
 }
