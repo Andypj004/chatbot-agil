@@ -500,6 +500,7 @@ function App() {
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [authMessage, setAuthMessage] = useState("");
   const [authError, setAuthError] = useState("");
+  const [registerStep, setRegisterStep] = useState(1);
   const [authForm, setAuthForm] = useState({
     email: "",
     password: "",
@@ -722,6 +723,25 @@ function App() {
       next[index] = value;
       return { ...current, questionnaire_answers: next };
     });
+  };
+
+  const validateRegisterStep = (step) => {
+    if (step === 1) {
+      if (!authForm.full_name || authForm.full_name.trim().length < 3) {
+        setAuthError("El nombre y apellido debe tener al menos 3 caracteres.");
+        return false;
+      }
+      if (!authForm.email || !authForm.email.includes("@")) {
+        setAuthError("Ingresa un correo electrónico válido.");
+        return false;
+      }
+      if (!authForm.password || authForm.password.length < 8) {
+        setAuthError("La contraseña debe tener al menos 8 caracteres.");
+        return false;
+      }
+    }
+    setAuthError(null);
+    return true;
   };
 
   const submitAuth = async () => {
@@ -1502,57 +1522,85 @@ function App() {
                   <p>Tu historial, tus sesiones y tu nivel de conocimiento se guardan por usuario.</p>
                 </div>
                 <div className="auth-tab-switcher">
-                  <button className={authMode === "login" ? "active" : ""} onClick={() => setAuthMode("login")}>Entrar</button>
-                  <button className={authMode === "register" ? "active" : ""} onClick={() => setAuthMode("register")}>Registrar</button>
+                  <button className={authMode === "login" ? "active" : ""} onClick={() => { setAuthMode("login"); setRegisterStep(1); setAuthError(null); }}>Entrar</button>
+                  <button className={authMode === "register" ? "active" : ""} onClick={() => { setAuthMode("register"); setRegisterStep(1); setAuthError(null); }}>Registrar</button>
                 </div>
               </div>
 
               {authError && <p className="auth-status error">{authError}</p>}
               {authMessage && <p className="auth-status ok">{authMessage}</p>}
 
-              <div className="auth-grid">
-                <label>
-                  Email
-                  <input type="email" value={authForm.email} onChange={(event) => updateAuthField("email", event.target.value)} />
-                </label>
-                <label>
-                  Contraseña
-                  <input type="password" value={authForm.password} onChange={(event) => updateAuthField("password", event.target.value)} />
-                </label>
+              {authMode === "login" && (
+                <div className="auth-grid">
+                  <label>
+                    Email
+                    <input type="email" value={authForm.email} onChange={(event) => updateAuthField("email", event.target.value)} />
+                  </label>
+                  <label>
+                    Contraseña
+                    <input type="password" value={authForm.password} onChange={(event) => updateAuthField("password", event.target.value)} />
+                  </label>
+                </div>
+              )}
 
-                {authMode === "register" && (
-                  <>
-                    <label>
-                      Nombre y apellido
-                      <input type="text" value={authForm.full_name} onChange={(event) => updateAuthField("full_name", event.target.value)} />
-                    </label>
-                    <label>
-                      Tipo de cuenta
-                      <select value={authForm.account_type} onChange={(event) => updateAuthField("account_type", event.target.value)}>
-                        <option value="Profesor">Profesor</option>
-                        <option value="Estudiante">Estudiante</option>
-                      </select>
-                    </label>
-                    <label>
-                      Nivel declarado
-                      <select value={authForm.knowledge_level} onChange={(event) => updateAuthField("knowledge_level", Number(event.target.value))}>
-                        <option value={1}>1 Ninguno</option>
-                        <option value={2}>2 Inicial</option>
-                        <option value={3}>3 Intermedio</option>
-                        <option value={4}>4 Avanzado</option>
-                      </select>
-                    </label>
+              {authMode === "register" && (
+                <>
+                  <div className="wizard-progress">
+                    <div className="wizard-progress-header">
+                      <span className="wizard-progress-label">
+                        {registerStep === 1 && "Tu cuenta"}
+                        {registerStep === 2 && "Preguntas 1 – 3"}
+                        {registerStep === 3 && "Preguntas 4 – 5"}
+                        {registerStep === 4 && "Nivel general"}
+                      </span>
+                      <span className="wizard-progress-count">{registerStep} / 4</span>
+                    </div>
+                    <div className="wizard-progress-track">
+                      <div className="wizard-progress-fill" style={{ width: `${(registerStep / 4) * 100}%` }}></div>
+                    </div>
+                  </div>
 
+                  {registerStep === 1 && (
+                    <div className="auth-grid">
+                      <label>
+                        Nombre y apellido
+                        <input
+                          type="text"
+                          value={authForm.full_name}
+                          onChange={(e) => updateAuthField("full_name", e.target.value)}
+                          placeholder="Ej. Andy Macas"
+                        />
+                      </label>
+                      <label>
+                        Correo electrónico
+                        <input
+                          type="email"
+                          value={authForm.email}
+                          onChange={(e) => updateAuthField("email", e.target.value)}
+                          placeholder="usuario@correo.com"
+                        />
+                      </label>
+                      <label>
+                        Contraseña
+                        <input
+                          type="password"
+                          value={authForm.password}
+                          onChange={(e) => updateAuthField("password", e.target.value)}
+                          placeholder="Mínimo 8 caracteres"
+                        />
+                      </label>
+                    </div>
+                  )}
+
+                  {registerStep === 2 && (
                     <div className="questionnaire-block">
-                      <h3>Cuestionario de evaluación ágil</h3>
-                      <p>Selecciona la alternativa que mejor represente tu postura.</p>
-                      {AGILE_QUESTIONNAIRE.map((question, index) => (
+                      {AGILE_QUESTIONNAIRE.slice(0, 3).map((question, index) => (
                         <label key={question.id} className="question-item">
                           <span className="question-title">Pregunta {question.id}</span>
                           <span className="question-statement">{question.statement}</span>
                           <select
                             value={authForm.questionnaire_answers[index]}
-                            onChange={(event) => updateQuestionnaireAnswer(index, event.target.value)}
+                            onChange={(e) => updateQuestionnaireAnswer(index, e.target.value)}
                           >
                             <option value="">Seleccionar</option>
                             {question.options.map((option) => (
@@ -1564,14 +1612,83 @@ function App() {
                         </label>
                       ))}
                     </div>
-                  </>
-                )}
-              </div>
+                  )}
+
+                  {registerStep === 3 && (
+                    <div className="questionnaire-block">
+                      {AGILE_QUESTIONNAIRE.slice(3, 5).map((question, index) => (
+                        <label key={question.id} className="question-item">
+                          <span className="question-title">Pregunta {question.id}</span>
+                          <span className="question-statement">{question.statement}</span>
+                          <select
+                            value={authForm.questionnaire_answers[index + 3]}
+                            onChange={(e) => updateQuestionnaireAnswer(index + 3, e.target.value)}
+                          >
+                            <option value="">Seleccionar</option>
+                            {question.options.map((option) => (
+                              <option key={`${question.id}-${option.value}`} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+
+                  {registerStep === 4 && (
+                    <div className="auth-grid">
+                      <label>
+                        Nivel de conocimiento en agilidad
+                        <select
+                          value={authForm.knowledge_level}
+                          onChange={(e) => updateAuthField("knowledge_level", Number(e.target.value))}
+                        >
+                          <option value={1}>1 — Principiante (no conozco metodologías ágiles)</option>
+                          <option value={2}>2 — Básico (conozco los conceptos fundamentales)</option>
+                          <option value={3}>3 — Intermedio (aplico frameworks en proyectos reales)</option>
+                          <option value={4}>4 — Avanzado (lidero equipos ágiles o soy coach)</option>
+                        </select>
+                      </label>
+                    </div>
+                  )}
+                </>
+              )}
 
               <div className="panel-actions">
-                <button className="primary-btn" onClick={submitAuth} disabled={authSubmitting}>
-                  {authSubmitting ? "Procesando..." : authMode === "login" ? "Entrar" : "Crear cuenta"}
-                </button>
+                {authMode === "login" ? (
+                  <button className="primary-btn" onClick={submitAuth} disabled={authSubmitting}>
+                    {authSubmitting ? "Procesando..." : "Entrar"}
+                  </button>
+                ) : registerStep < 4 ? (
+                  <button
+                    className="primary-btn"
+                    onClick={() => {
+                      if (validateRegisterStep(registerStep)) {
+                        setRegisterStep((s) => s + 1);
+                      }
+                    }}
+                  >
+                    Continuar →
+                  </button>
+                ) : (
+                  <button className="primary-btn" onClick={submitAuth} disabled={authSubmitting}>
+                    {authSubmitting ? "Procesando..." : "✓ Crear mi cuenta"}
+                  </button>
+                )}
+                {authMode === "register" && registerStep > 1 && (
+                  <button
+                    className="ghost-btn"
+                    onClick={() => { setRegisterStep((s) => s - 1); setAuthError(null); }}
+                  >
+                    ← Atrás
+                  </button>
+                )}
+                {authMode === "register" && registerStep === 1 && (
+                  <button className="ghost-btn" onClick={() => setAuthMode("login")}>
+                    Ya tengo cuenta
+                  </button>
+                )}
               </div>
             </div>
           </section>

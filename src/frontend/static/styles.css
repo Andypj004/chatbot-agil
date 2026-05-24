@@ -1357,6 +1357,44 @@ textarea::placeholder {
   align-items: center;
 }
 
+.wizard-progress {
+  margin-bottom: 4px;
+}
+
+.wizard-progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 7px;
+}
+
+.wizard-progress-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+
+.wizard-progress-count {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+}
+
+.wizard-progress-track {
+  height: 3px;
+  background: var(--border);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.wizard-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary), var(--primary-strong));
+  border-radius: var(--radius-full);
+  transition: width 0.4s ease;
+}
+
 @keyframes rise {
   from {
     opacity: 0;
