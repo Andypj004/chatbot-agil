@@ -10,8 +10,18 @@ from typing import Any, Dict, List, Optional
 import sqlite3
 import threading
 import unicodedata
+from uuid import uuid4
 
 from src.memory.concept_tracker import extract_concepts
+from src.core.security import (
+    assess_agile_level,
+    agile_level_label,
+    generate_token,
+    hash_password,
+    hash_token,
+    normalize_agile_level,
+    verify_password,
+)
 
 
 class SessionManager:
@@ -55,12 +65,68 @@ class SessionManager:
                 """
                 CREATE TABLE IF NOT EXISTS sessions (
                     session_id TEXT PRIMARY KEY,
+                    user_id TEXT,
                     title TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
                 """
             )
+            session_columns = {
+                row[1]
+                for row in conn.execute("PRAGMA table_info(sessions)").fetchall()
+            }
+            if "user_id" not in session_columns:
+                conn.execute("ALTER TABLE sessions ADD COLUMN user_id TEXT")
+
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS users (
+                    user_id TEXT PRIMARY KEY,
+                    email TEXT NOT NULL UNIQUE,
+                    full_name TEXT NOT NULL,
+                    account_type TEXT NOT NULL,
+                    knowledge_level INTEGER NOT NULL,
+                    agile_adoption_level INTEGER NOT NULL,
+                    agile_adoption_label TEXT NOT NULL,
+                    questionnaire_answers_json TEXT NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    password_salt TEXT NOT NULL,
+                    auth_token_hash TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    last_login_at TEXT
+                )
+                """
+            )
+            user_columns = {
+                row[1]
+                for row in conn.execute("PRAGMA table_info(users)").fetchall()
+            }
+            if "full_name" not in user_columns:
+                conn.execute("ALTER TABLE users ADD COLUMN full_name TEXT")
+            if "account_type" not in user_columns:
+                conn.execute("ALTER TABLE users ADD COLUMN account_type TEXT")
+            if "knowledge_level" not in user_columns:
+                conn.execute("ALTER TABLE users ADD COLUMN knowledge_level INTEGER NOT NULL DEFAULT 1")
+            if "agile_adoption_level" not in user_columns:
+                conn.execute("ALTER TABLE users ADD COLUMN agile_adoption_level INTEGER NOT NULL DEFAULT 1")
+            if "agile_adoption_label" not in user_columns:
+                conn.execute("ALTER TABLE users ADD COLUMN agile_adoption_label TEXT NOT NULL DEFAULT 'Ninguno'")
+            if "questionnaire_answers_json" not in user_columns:
+                conn.execute("ALTER TABLE users ADD COLUMN questionnaire_answers_json TEXT NOT NULL DEFAULT '[]'")
+            if "password_hash" not in user_columns:
+                conn.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
+            if "password_salt" not in user_columns:
+                conn.execute("ALTER TABLE users ADD COLUMN password_salt TEXT")
+            if "auth_token_hash" not in user_columns:
+                conn.execute("ALTER TABLE users ADD COLUMN auth_token_hash TEXT")
+            if "created_at" not in user_columns:
+                conn.execute("ALTER TABLE users ADD COLUMN created_at TEXT")
+            if "updated_at" not in user_columns:
+                conn.execute("ALTER TABLE users ADD COLUMN updated_at TEXT")
+            if "last_login_at" not in user_columns:
+                conn.execute("ALTER TABLE users ADD COLUMN last_login_at TEXT")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS messages (
@@ -93,6 +159,12 @@ class SessionManager:
                 """
                 CREATE INDEX IF NOT EXISTS idx_sessions_updated
                 ON sessions (updated_at)
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_sessions_user_updated
+                ON sessions (user_id, updated_at)
                 """
             )
             conn.execute(
@@ -185,17 +257,50 @@ class SessionManager:
             )
             conn.commit()
 
-    def create_session(self, session_id: str, title: Optional[str] = None) -> None:
+    @staticmethod
+    def _sanitize_email(email: str) -> str:
+        return " ".join(str(email or "").strip().lower().split())
+
+    @staticmethod
+    def _serialize_user_row(row: sqlite3.Row | None) -> Optional[Dict[str, Any]]:
+        if row is None:
+            return None
+
+        agile_level = int(row["agile_adoption_level"] or 1)
+        knowledge_level = int(row["knowledge_level"] or 1)
+        return {
+            "user_id": row["user_id"],
+            "email": row["email"],
+            "full_name": row["full_name"],
+            "account_type": row["account_type"],
+            "knowledge_level": knowledge_level,
+            "agile_adoption_level": agile_level,
+            "agile_adoption_label": row["agile_adoption_label"] or agile_level_label(agile_level),
+            "questionnaire_answers": json.loads(row["questionnaire_answers_json"] or "[]"),
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+            "last_login_at": row["last_login_at"],
+        }
+
+    def create_session(
+        self,
+        session_id: str,
+        title: Optional[str] = None,
+        user_id: Optional[str] = None,
+    ) -> None:
         now = self._now_iso()
         with self._lock:
             with self._connect() as conn:
                 conn.execute(
                     """
-                    INSERT INTO sessions (session_id, title, created_at, updated_at)
-                    VALUES (?, ?, ?, ?)
-                    ON CONFLICT(session_id) DO NOTHING
+                    INSERT INTO sessions (session_id, user_id, title, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(session_id) DO UPDATE SET
+                        user_id = COALESCE(sessions.user_id, excluded.user_id),
+                        title = COALESCE(sessions.title, excluded.title),
+                        updated_at = excluded.updated_at
                     """,
-                    (session_id, title, now, now),
+                    (session_id, user_id, title, now, now),
                 )
                 conn.commit()
 
@@ -215,8 +320,8 @@ class SessionManager:
             with self._connect() as conn:
                 conn.execute(
                     """
-                    INSERT INTO sessions (session_id, title, created_at, updated_at)
-                    VALUES (?, NULL, ?, ?)
+                    INSERT INTO sessions (session_id, user_id, title, created_at, updated_at)
+                    VALUES (?, NULL, NULL, ?, ?)
                     ON CONFLICT(session_id) DO NOTHING
                     """,
                     (session_id, now, now),
@@ -284,10 +389,16 @@ class SessionManager:
             )
         return messages
 
-    def list_sessions(self, limit: int = 50, query: Optional[str] = None) -> List[Dict[str, Any]]:
+    def list_sessions(
+        self,
+        limit: int = 50,
+        query: Optional[str] = None,
+        user_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         sql = """
             SELECT
                 s.session_id,
+                s.user_id,
                 s.title,
                 s.created_at,
                 s.updated_at,
@@ -303,15 +414,23 @@ class SessionManager:
             LEFT JOIN messages m ON m.session_id = s.session_id
         """
         params: List[Any] = []
+        conditions: List[str] = []
+
+        if user_id is None:
+            conditions.append("s.user_id IS NULL")
+        else:
+            conditions.append("s.user_id = ?")
+            params.append(user_id)
 
         if query:
-            sql += (
-                " WHERE s.session_id LIKE ?"
-                " OR s.title LIKE ?"
-                " OR EXISTS (SELECT 1 FROM messages sm WHERE sm.session_id = s.session_id AND sm.text LIKE ?)"
+            conditions.append(
+                "(s.session_id LIKE ? OR s.title LIKE ? OR EXISTS (SELECT 1 FROM messages sm WHERE sm.session_id = s.session_id AND sm.text LIKE ?))"
             )
             q = f"%{query}%"
             params.extend([q, q, q])
+
+        if conditions:
+            sql += " WHERE " + " AND ".join(conditions)
 
         sql += " GROUP BY s.session_id ORDER BY s.updated_at DESC LIMIT ?"
         params.append(limit)
@@ -322,6 +441,7 @@ class SessionManager:
         return [
             {
                 "session_id": row["session_id"],
+                "user_id": row["user_id"],
                 "title": row["title"],
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
@@ -331,11 +451,41 @@ class SessionManager:
             for row in rows
         ]
 
-    def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+    def get_session(self, session_id: str, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         with self._connect() as conn:
             row = conn.execute(
                 """
-                SELECT session_id, title, created_at, updated_at
+                SELECT session_id, user_id, title, created_at, updated_at
+                FROM sessions
+                WHERE session_id = ?
+                """,
+                (session_id,),
+            ).fetchone()
+
+        if not row:
+            return None
+
+        owner_id = row["user_id"]
+        if user_id is None:
+            if owner_id is not None:
+                return None
+        elif owner_id != user_id:
+            return None
+
+        return {
+            "session_id": row["session_id"],
+            "user_id": row["user_id"],
+            "title": row["title"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    def get_session_record(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Return a raw session row without applying ownership filtering."""
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT session_id, user_id, title, created_at, updated_at
                 FROM sessions
                 WHERE session_id = ?
                 """,
@@ -347,6 +497,7 @@ class SessionManager:
 
         return {
             "session_id": row["session_id"],
+            "user_id": row["user_id"],
             "title": row["title"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
@@ -358,8 +509,8 @@ class SessionManager:
             with self._connect() as conn:
                 conn.execute(
                     """
-                    INSERT INTO sessions (session_id, title, created_at, updated_at)
-                    VALUES (?, NULL, ?, ?)
+                    INSERT INTO sessions (session_id, user_id, title, created_at, updated_at)
+                    VALUES (?, NULL, NULL, ?, ?)
                     ON CONFLICT(session_id) DO NOTHING
                     """,
                     (session_id, now, now),
@@ -441,8 +592,8 @@ class SessionManager:
             with self._connect() as conn:
                 conn.execute(
                     """
-                    INSERT INTO sessions (session_id, title, created_at, updated_at)
-                    VALUES (?, NULL, ?, ?)
+                    INSERT INTO sessions (session_id, user_id, title, created_at, updated_at)
+                    VALUES (?, NULL, NULL, ?, ?)
                     ON CONFLICT(session_id) DO NOTHING
                     """,
                     (session_id, now, now),
@@ -521,8 +672,8 @@ class SessionManager:
             with self._connect() as conn:
                 conn.execute(
                     """
-                    INSERT INTO sessions (session_id, title, created_at, updated_at)
-                    VALUES (?, NULL, ?, ?)
+                    INSERT INTO sessions (session_id, user_id, title, created_at, updated_at)
+                    VALUES (?, NULL, NULL, ?, ?)
                     ON CONFLICT(session_id) DO NOTHING
                     """,
                     (session_id, now, now),
@@ -655,8 +806,8 @@ class SessionManager:
             with self._connect() as conn:
                 conn.execute(
                     """
-                    INSERT INTO sessions (session_id, title, created_at, updated_at)
-                    VALUES (?, NULL, ?, ?)
+                    INSERT INTO sessions (session_id, user_id, title, created_at, updated_at)
+                    VALUES (?, NULL, NULL, ?, ?)
                     ON CONFLICT(session_id) DO NOTHING
                     """,
                     (session_id, now, now),
@@ -760,3 +911,184 @@ class SessionManager:
                 )
                 conn.commit()
         return cursor.rowcount
+
+    def create_user(
+        self,
+        email: str,
+        password: str,
+        full_name: str,
+        account_type: str,
+        knowledge_level: int,
+        questionnaire_answers: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        normalized_email = self._sanitize_email(email)
+        if not normalized_email:
+            raise ValueError("email is required")
+
+        if self.get_user_by_email(normalized_email) is not None:
+            raise ValueError("email already registered")
+
+        password_hash, password_salt = hash_password(password)
+        assessment = assess_agile_level(questionnaire_answers or [])
+        agile_level = assessment["level"] if questionnaire_answers else normalize_agile_level(knowledge_level)
+        now = self._now_iso()
+        user_id = str(uuid4())
+
+        with self._lock:
+            with self._connect() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO users (
+                        user_id, email, full_name, account_type, knowledge_level,
+                        agile_adoption_level, agile_adoption_label,
+                        questionnaire_answers_json, password_hash, password_salt,
+                        auth_token_hash, created_at, updated_at, last_login_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL)
+                    """,
+                    (
+                        user_id,
+                        normalized_email,
+                        full_name.strip(),
+                        account_type,
+                        normalize_agile_level(knowledge_level),
+                        agile_level,
+                        assessment["label"],
+                        json.dumps(questionnaire_answers or []),
+                        password_hash,
+                        password_salt,
+                        now,
+                        now,
+                    ),
+                )
+                conn.commit()
+
+        profile = self.get_user_profile(user_id)
+        if profile is None:
+            raise ValueError("failed to create user")
+        return profile
+
+    def _fetch_user_row(
+        self,
+        *,
+        email: Optional[str] = None,
+        user_id: Optional[str] = None,
+    ) -> Optional[sqlite3.Row]:
+        query = ["SELECT * FROM users"]
+        params: List[Any] = []
+        if email is not None:
+            query.append("WHERE email = ?")
+            params.append(self._sanitize_email(email))
+        elif user_id is not None:
+            query.append("WHERE user_id = ?")
+            params.append(user_id)
+        else:
+            return None
+
+        with self._connect() as conn:
+            return conn.execute(" ".join(query), params).fetchone()
+
+    def get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        return self._serialize_user_row(self._fetch_user_row(email=email))
+
+    def get_user_profile(self, user_id: str) -> Optional[Dict[str, Any]]:
+        return self._serialize_user_row(self._fetch_user_row(user_id=user_id))
+
+    def get_user_by_token(self, token: str) -> Optional[Dict[str, Any]]:
+        token_hash = hash_token(token)
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM users WHERE auth_token_hash = ?",
+                (token_hash,),
+            ).fetchone()
+        return self._serialize_user_row(row)
+
+    def issue_user_token(self, user_id: str) -> str:
+        token = generate_token()
+        token_hash = hash_token(token)
+        now = self._now_iso()
+
+        with self._lock:
+            with self._connect() as conn:
+                conn.execute(
+                    "UPDATE users SET auth_token_hash = ?, updated_at = ? WHERE user_id = ?",
+                    (token_hash, now, user_id),
+                )
+                conn.commit()
+
+        return token
+
+    def authenticate_user(self, email: str, password: str) -> Optional[Dict[str, Any]]:
+        row = self._fetch_user_row(email=email)
+        if row is None:
+            return None
+
+        if not verify_password(password, row["password_hash"], row["password_salt"]):
+            return None
+
+        now = self._now_iso()
+        token = generate_token()
+        token_hash = hash_token(token)
+
+        with self._lock:
+            with self._connect() as conn:
+                conn.execute(
+                    "UPDATE users SET auth_token_hash = ?, last_login_at = ?, updated_at = ? WHERE user_id = ?",
+                    (token_hash, now, now, row["user_id"]),
+                )
+                conn.commit()
+
+        profile = self.get_user_profile(row["user_id"])
+        if profile is None:
+            return None
+
+        profile["access_token"] = token
+        return profile
+
+    def update_user_agile_profile(
+        self,
+        user_id: str,
+        questionnaire_answers: List[Dict[str, Any]],
+        knowledge_level: Optional[int] = None,
+    ) -> Optional[Dict[str, Any]]:
+        assessment = assess_agile_level(questionnaire_answers)
+        now = self._now_iso()
+
+        with self._lock:
+            with self._connect() as conn:
+                cursor = conn.execute(
+                    """
+                    UPDATE users
+                    SET knowledge_level = COALESCE(?, knowledge_level),
+                        agile_adoption_level = ?,
+                        agile_adoption_label = ?,
+                        questionnaire_answers_json = ?,
+                        updated_at = ?
+                    WHERE user_id = ?
+                    """,
+                    (
+                        normalize_agile_level(knowledge_level) if knowledge_level is not None else None,
+                        assessment["level"],
+                        assessment["label"],
+                        json.dumps(questionnaire_answers or []),
+                        now,
+                        user_id,
+                    ),
+                )
+                conn.commit()
+
+        if cursor.rowcount <= 0:
+            return None
+        return self.get_user_profile(user_id)
+
+    def build_user_context(self, user_id: str) -> str:
+        profile = self.get_user_profile(user_id)
+        if not profile:
+            return ""
+
+        parts = [f"Usuario autenticado: {profile['full_name']}"]
+        parts.append(f"perfil: {profile['account_type']}")
+        parts.append(
+            f"nivel declarado: {profile['knowledge_level']} ({agile_level_label(profile['knowledge_level'])})"
+        )
+        parts.append(f"nivel estimado: {profile['agile_adoption_level']} ({profile['agile_adoption_label']})")
+        return "; ".join(parts)
