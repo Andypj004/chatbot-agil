@@ -1,9 +1,9 @@
 """Dependency injection for FastAPI"""
 
 from functools import lru_cache
-from typing import Optional
+from typing import Optional, Dict, Any
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Header
 
 from src.llm.factory import LLMFactory
 from src.llm.base import BaseLLMProvider
@@ -105,6 +105,48 @@ def get_session_manager() -> SessionManager:
         logger.info("Initializing session manager")
         _session_manager = SessionManager(db_path=settings.conversation_db_path)
     return _session_manager
+
+
+def _extract_auth_token(
+    authorization: Optional[str] = None,
+    x_auth_token: Optional[str] = None,
+) -> Optional[str]:
+    token = x_auth_token or authorization
+    if not token:
+        return None
+
+    token = token.strip()
+    if token.lower().startswith("bearer "):
+        token = token[7:].strip()
+    return token or None
+
+
+def get_current_user_optional(
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+    x_auth_token: Optional[str] = Header(default=None, alias="X-Auth-Token"),
+    session_manager: SessionManager = Depends(get_session_manager),
+) -> Optional[Dict[str, Any]]:
+    """Resolve the current user from an auth token if one is provided."""
+    token = _extract_auth_token(authorization=authorization, x_auth_token=x_auth_token)
+    if not token:
+        return None
+
+    user = session_manager.get_user_by_token(token)
+    if user is None:
+        return None
+    return user
+
+
+def get_current_user(
+    current_user: Optional[Dict[str, Any]] = Depends(get_current_user_optional),
+) -> Dict[str, Any]:
+    """Require a valid authenticated user."""
+    if current_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+    return current_user
 
 
 def get_llm_provider(
