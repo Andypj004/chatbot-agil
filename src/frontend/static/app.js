@@ -472,6 +472,33 @@ function AttachmentPreview({ item, onOpen }) {
   );
 }
 
+function groupSessionsByDate(sessions) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const weekAgo = new Date(today);
+  weekAgo.setDate(weekAgo.getDate() - 7);
+
+  const groups = { "Hoy": [], "Ayer": [], "Esta semana": [], "Anteriores": [] };
+
+  sessions.forEach((session) => {
+    const date = new Date(session.created_at || session.updated_at || 0);
+    date.setHours(0, 0, 0, 0);
+    if (date >= today) {
+      groups["Hoy"].push(session);
+    } else if (date >= yesterday) {
+      groups["Ayer"].push(session);
+    } else if (date >= weekAgo) {
+      groups["Esta semana"].push(session);
+    } else {
+      groups["Anteriores"].push(session);
+    }
+  });
+
+  return Object.entries(groups).filter(([, items]) => items.length > 0);
+}
+
 function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [helpMenuOpen, setHelpMenuOpen] = useState(false);
@@ -1401,21 +1428,27 @@ function App() {
 
         <div className="session-list">
           {sidebarOpen && <div className="section-title">Conversaciones</div>}
-          {sessions.map((item) => (
-            <div key={item.session_id} className={`session-item ${item.session_id === sessionId ? "active" : ""}`}>
-              {sidebarOpen ? (
-                <>
-                  <button className="session-select" onClick={() => loadHistory(item.session_id)}>
-                    <strong>{truncateText(getSessionLabel(item), 32)}</strong>
-                  </button>
-                  <button className="session-rename" onClick={() => renameSession(item)} title="Renombrar charla">✎</button>
-                  <button className="session-delete" onClick={() => deleteSession(item.session_id)}>x</button>
-                </>
-              ) : (
-                <button className="session-dot" onClick={() => loadHistory(item.session_id)} title={getSessionLabel(item)}>●</button>
-              )}
-            </div>
-          ))}
+          {sidebarOpen
+            ? groupSessionsByDate(sessions).map(([label, items]) => (
+                React.createElement(React.Fragment, { key: label },
+                  React.createElement("div", { className: "session-group-label" }, label),
+                  items.map((item) => (
+                    <div key={item.session_id} className={`session-item ${item.session_id === sessionId ? "active" : ""}`}>
+                      <button className="session-select" onClick={() => loadHistory(item.session_id)}>
+                        <strong>{truncateText(getSessionLabel(item), 32)}</strong>
+                      </button>
+                      <button className="session-rename" onClick={() => renameSession(item)} title="Renombrar charla">✎</button>
+                      <button className="session-delete" onClick={() => deleteSession(item.session_id)}>x</button>
+                    </div>
+                  ))
+                )
+              ))
+            : sessions.map((item) => (
+                <div key={item.session_id} className={`session-item ${item.session_id === sessionId ? "active" : ""}`}>
+                  <button className="session-dot" onClick={() => loadHistory(item.session_id)} title={getSessionLabel(item)}>●</button>
+                </div>
+              ))
+          }
         </div>
 
         <div className="sidebar-footer">
