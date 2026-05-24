@@ -1,9 +1,62 @@
 const { useEffect, useMemo, useRef, useState } = React;
 
 const DEFAULT_API_BASE = `${window.location.origin}/api/v1`;
-const DEFAULT_SESSION = localStorage.getItem("sessionId") || null;
 const MAX_SESSION_LABEL_LENGTH = 56;
 const DEFAULT_MARKDOWN_RENDERING = true;
+const AUTH_TOKEN_KEY = "authToken";
+const AUTH_USER_KEY = "authUser";
+const AGILE_QUESTIONNAIRE = [
+  {
+    id: 1,
+    statement: "Ante una modificación imprevista en los requisitos del software a mitad del ciclo de desarrollo, ¿cuál considera que es la postura metodológica correcta?",
+    options: [
+      { value: "a", label: "a) Evitar o penalizar el cambio porque rompe la planificación inicial y pone en riesgo el cronograma acordado." },
+      { value: "b", label: "b) Aceptar el cambio por exigencia, aunque genere frustración y desorganización interna al alterar el alcance ya pactado." },
+      { value: "c", label: "c) Mantener una actitud de bienvenida hacia el cambio, entendiéndolo como parte de un proceso de aprendizaje continuo para maximizar el valor real entregado al cliente." },
+      { value: "d", label: "d) No conozco" },
+    ],
+  },
+  {
+    id: 2,
+    statement: "Con respecto a la frecuencia de las entregas y la planificación del producto:",
+    options: [
+      { value: "a", label: "a) Se planifica todo el proyecto al inicio y se realiza una única entrega formal y completa al finalizar el proceso." },
+      { value: "b", label: "b) Se entrega software en periodos fijos, pero el feedback del cliente se procesa tarde, afectando poco la planificación de los siguientes ciclos." },
+      { value: "c", label: "c) Se entrega software funcional de manera temprana y frecuente para obtener retroalimentación crucial que moldee el alcance y la dirección de la siguiente planificación." },
+      { value: "d", label: "d) No conozco" },
+    ],
+  },
+  {
+    id: 3,
+    statement: "¿Cómo se concibe la dinámica de trabajo, la asignación de tareas y las interacciones dentro del equipo?",
+    options: [
+      { value: "a", label: "a) Las tareas son asignadas y supervisadas de forma individual y centralizada por un líder o gerente de proyecto." },
+      { value: "b", label: "b) El equipo se reúne para revisar tareas, pero la toma de decisiones y la responsabilidad siguen dependiendo de un control externo." },
+      { value: "c", label: "c) El éxito se basa en las personas y sus interacciones; el equipo es multifuncional, se autogestiona y colabora diariamente de forma transparente." },
+      { value: "d", label: "d) No conozco" },
+    ],
+  },
+  {
+    id: 4,
+    statement: "Para asegurar la sostenibilidad del software en entornos de ritmo rápido, ¿cuándo se define que una funcionalidad está realmente concluida?",
+    options: [
+      { value: "a", label: "a) Cuando el desarrollador termina de escribir el código en su máquina local, delegando las pruebas a terceros." },
+      { value: "b", label: "b) Cuando la funcionalidad pasa filtros básicos de pruebas individuales, aunque queden pendientes integraciones o revisiones de calidad global." },
+      { value: "c", label: "c) Cuando cumple estrictamente con un compromiso de calidad y código limpio (Definition of Done), estando totalmente integrado, probado y listo para producción." },
+      { value: "d", label: "d) No conozco" },
+    ],
+  },
+  {
+    id: 5,
+    statement: "¿Cómo debe ser la relación e interacción con el cliente y los stakeholders durante el desarrollo?",
+    options: [
+      { value: "a", label: "a) Contractual y limitada a puntos específicos del proyecto (inicio y entrega final) para evitar corrupciones en el alcance." },
+      { value: "b", label: "b) Intermitente; se le consulta al cliente únicamente cuando surgen dudas puntuales o en demostraciones programadas al final de hitos largos." },
+      { value: "c", label: "c) Significativa, frecuente y colaborativa a lo largo de todo el esfuerzo de desarrollo para asegurar que el producto satisfaga las necesidades reales del negocio." },
+      { value: "d", label: "d) No conozco" },
+    ],
+  },
+];
 const hasMarked = typeof window.marked !== "undefined";
 const hasDomPurify = typeof window.DOMPurify !== "undefined";
 
@@ -255,6 +308,61 @@ function attachmentKindLabel(item) {
     : String(item?.file_type || "Documento").toUpperCase();
 }
 
+function getSessionStorageKey(userId) {
+  return userId ? `sessionId:${userId}` : "sessionId:anonymous";
+}
+
+function formatApiDetail(payload, fallbackStatus) {
+  if (!payload) {
+    return `HTTP ${fallbackStatus}`;
+  }
+
+  const detail = payload.detail ?? payload;
+
+  if (typeof detail === "string") {
+    return detail;
+  }
+
+  if (Array.isArray(detail)) {
+    const lines = detail.map((item) => {
+      const location = Array.isArray(item?.loc) ? item.loc.join(".") : "campo";
+      const message = item?.msg || JSON.stringify(item);
+      return `${location}: ${message}`;
+    });
+    return lines.join("\n");
+  }
+
+  if (typeof detail === "object") {
+    return JSON.stringify(detail);
+  }
+
+  return `HTTP ${fallbackStatus}`;
+}
+
+function validateRegistrationForm(authForm) {
+  if (!String(authForm.email || "").trim()) {
+    return "El email es obligatorio.";
+  }
+
+  if (!String(authForm.password || "").trim()) {
+    return "La contraseña es obligatoria.";
+  }
+
+  if (String(authForm.password || "").trim().length < 8) {
+    return "La contraseña debe tener al menos 8 caracteres.";
+  }
+
+  if (!String(authForm.full_name || "").trim()) {
+    return "El nombre y apellido es obligatorio.";
+  }
+
+  if (String(authForm.full_name || "").trim().length < 3) {
+    return "El nombre y apellido debe tener al menos 3 caracteres.";
+  }
+
+  return null;
+}
+
 function SourceReferences({ sources = [] }) {
   const [isOpen, setIsOpen] = useState(false);
   const sortedSources = useMemo(() => {
@@ -371,6 +479,28 @@ function App() {
   const [apiBase, setApiBase] = useState(localStorage.getItem("apiBase") || DEFAULT_API_BASE);
   const [theme, setTheme] = useState(localStorage.getItem("theme") || "dark");
   const [markdownRendering, setMarkdownRendering] = useState(DEFAULT_MARKDOWN_RENDERING);
+  const [authToken, setAuthToken] = useState(localStorage.getItem(AUTH_TOKEN_KEY) || "");
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      const raw = localStorage.getItem(AUTH_USER_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (_) {
+      return null;
+    }
+  });
+  const [authMode, setAuthMode] = useState("login");
+  const [authReady, setAuthReady] = useState(false);
+  const [authSubmitting, setAuthSubmitting] = useState(false);
+  const [authMessage, setAuthMessage] = useState("");
+  const [authError, setAuthError] = useState("");
+  const [authForm, setAuthForm] = useState({
+    email: "",
+    password: "",
+    full_name: "",
+    account_type: "Estudiante",
+    knowledge_level: 1,
+    questionnaire_answers: ["", "", "", "", ""]
+  });
 
   const [providers, setProviders] = useState([]);
   const [modelsByProvider, setModelsByProvider] = useState({});
@@ -383,7 +513,7 @@ function App() {
 
   const [sessions, setSessions] = useState([]);
   const [sessionSearch, setSessionSearch] = useState("");
-  const [sessionId, setSessionId] = useState(DEFAULT_SESSION);
+  const [sessionId, setSessionId] = useState(null);
 
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -412,6 +542,7 @@ function App() {
   const modelsForCurrentProvider = useMemo(() => modelsByProvider[provider] || [], [modelsByProvider, provider]);
   const activeSession = useMemo(() => sessions.find((item) => item.session_id === sessionId) || null, [sessions, sessionId]);
   const hasMessages = messages.length > 0;
+  const sessionStorageKey = getSessionStorageKey(currentUser?.user_id);
 
   const scrollToConversationBottom = () => {
     if (!chatViewportRef.current) {
@@ -432,13 +563,59 @@ function App() {
     setShowScrollToBottom(!isNearBottom && hasMessages);
   };
 
+  const persistAuthState = (token, user) => {
+    setAuthToken(token || "");
+    setCurrentUser(user || null);
+
+    if (token) {
+      localStorage.setItem(AUTH_TOKEN_KEY, token);
+    } else {
+      localStorage.removeItem(AUTH_TOKEN_KEY);
+    }
+
+    if (user) {
+      localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+    } else {
+      localStorage.removeItem(AUTH_USER_KEY);
+    }
+  };
+
+  const authHeaders = (extraHeaders = {}) => {
+    const headers = { ...extraHeaders };
+    if (authToken) {
+      headers.Authorization = `Bearer ${authToken}`;
+    }
+    return headers;
+  };
+
   const request = async (path, options = {}) => {
+    const response = await fetch(`${apiBase}${path}`, {
+      ...options,
+      headers: authHeaders(options.headers || {}),
+    });
+    if (!response.ok) {
+      let detail = `HTTP ${response.status}`;
+      try {
+        const data = await response.json();
+        detail = formatApiDetail(data, response.status);
+      } catch (_) {
+        // Preserve generic detail when body is not JSON.
+      }
+      throw new Error(detail);
+    }
+    if (response.status === 204) {
+      return null;
+    }
+    return response.json();
+  };
+
+  const requestWithoutAuth = async (path, options = {}) => {
     const response = await fetch(`${apiBase}${path}`, options);
     if (!response.ok) {
       let detail = `HTTP ${response.status}`;
       try {
         const data = await response.json();
-        detail = data.detail || JSON.stringify(data);
+        detail = formatApiDetail(data, response.status);
       } catch (_) {
         // Preserve generic detail when body is not JSON.
       }
@@ -489,6 +666,118 @@ function App() {
     setHealth(data);
   };
 
+  const loadCurrentUser = async () => {
+    if (!authToken) {
+      setAuthReady(true);
+      setCurrentUser(null);
+      return null;
+    }
+
+    try {
+      const profile = await requestWithoutAuth("/auth/me", {
+        headers: authHeaders(),
+      });
+      persistAuthState(authToken, profile);
+      setAuthError("");
+      return profile;
+    } catch (error) {
+      persistAuthState("", null);
+      setAuthError("Sesion expirada. Inicia sesion de nuevo.");
+      return null;
+    } finally {
+      setAuthReady(true);
+    }
+  };
+
+  const logout = async () => {
+    persistAuthState("", null);
+    setMessages([]);
+    setSessions([]);
+    setSessionDocuments([]);
+    setPendingAttachments([]);
+    setAttachmentViewer(null);
+    setInput("");
+    setSessionId(null);
+    localStorage.removeItem(sessionStorageKey);
+    setAuthMessage("Sesion cerrada");
+    setAuthError("");
+    setHelpMenuOpen(false);
+  };
+
+  const updateAuthField = (field, value) => {
+    setAuthForm((current) => ({ ...current, [field]: value }));
+  };
+
+  const updateQuestionnaireAnswer = (index, value) => {
+    setAuthForm((current) => {
+      const next = [...current.questionnaire_answers];
+      next[index] = value;
+      return { ...current, questionnaire_answers: next };
+    });
+  };
+
+  const submitAuth = async () => {
+    setAuthSubmitting(true);
+    setAuthError("");
+    setAuthMessage("");
+
+    try {
+      if (authMode === "login") {
+        const data = await requestWithoutAuth("/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: authForm.email,
+            password: authForm.password,
+          }),
+        });
+
+        persistAuthState(data.access_token, data.user);
+        const nextKey = getSessionStorageKey(data.user.user_id);
+        const storedSessionId = localStorage.getItem(nextKey);
+        setSessionId(storedSessionId || null);
+        setAuthMessage(`Bienvenido, ${data.user.full_name}`);
+        await Promise.all([loadConfig(), loadHealth(), loadSessions()]);
+        if (storedSessionId) {
+          await loadHistory(storedSessionId);
+        }
+      } else {
+        const validationError = validateRegistrationForm(authForm);
+        if (validationError) {
+          throw new Error(validationError);
+        }
+
+        const questionnaireAnswers = AGILE_QUESTIONNAIRE.map((question, index) => ({
+          question_number: question.id,
+          answer: authForm.questionnaire_answers[index] || "d",
+        }));
+        const data = await requestWithoutAuth("/auth/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: authForm.email,
+            password: authForm.password,
+            full_name: authForm.full_name,
+            account_type: authForm.account_type,
+            knowledge_level: Number(authForm.knowledge_level),
+            questionnaire_answers: questionnaireAnswers,
+          }),
+        });
+
+        persistAuthState(data.access_token, data.user);
+        const nextKey = getSessionStorageKey(data.user.user_id);
+        localStorage.removeItem(nextKey);
+        setSessionId(null);
+        setAuthMessage(`Cuenta creada. Nivel estimado: ${data.user.agile_adoption_label}`);
+        await Promise.all([loadConfig(), loadHealth(), loadSessions()]);
+      }
+    } catch (error) {
+      setAuthError(error.message);
+    } finally {
+      setAuthSubmitting(false);
+    }
+  };
+
   const loadSessions = async (query = "") => {
     const qs = query ? `?q=${encodeURIComponent(query)}` : "";
     const data = await request(`/sessions${qs}`);
@@ -509,7 +798,9 @@ function App() {
     }));
     setMessages(mapped);
     setSessionId(id);
-    localStorage.setItem("sessionId", id);
+    if (currentUser?.user_id) {
+      localStorage.setItem(getSessionStorageKey(currentUser.user_id), id);
+    }
     setPendingAttachments([]);
     setAttachmentViewer(null);
     await loadSessionDocuments(id);
@@ -517,7 +808,9 @@ function App() {
 
   const createNewConversation = () => {
     setSessionId(null);
-    localStorage.removeItem("sessionId");
+    if (currentUser?.user_id) {
+      localStorage.removeItem(getSessionStorageKey(currentUser.user_id));
+    }
     setMessages([]);
     setSessionDocuments([]);
     setPendingAttachments([]);
@@ -526,12 +819,15 @@ function App() {
   };
 
   const ensureSessionContextId = () => {
+    if (!currentUser?.user_id) {
+      return null;
+    }
     if (sessionId) {
       return sessionId;
     }
     const generatedId = window.crypto?.randomUUID?.() || `session-${Date.now()}`;
     setSessionId(generatedId);
-    localStorage.setItem("sessionId", generatedId);
+    localStorage.setItem(getSessionStorageKey(currentUser.user_id), generatedId);
     return generatedId;
   };
 
@@ -541,6 +837,7 @@ function App() {
 
     const response = await fetch(`${apiBase}/documents/upload`, {
       method: "POST",
+      headers: authHeaders(),
       body: formData
     });
     if (!response.ok) {
@@ -562,6 +859,7 @@ function App() {
 
     const response = await fetch(`${apiBase}/documents/sessions/${encodeURIComponent(targetSessionId)}/upload`, {
       method: "POST",
+      headers: authHeaders(),
       body: formData
     });
     if (!response.ok) {
@@ -644,6 +942,10 @@ function App() {
     if (isUploadingSessionDocs) {
       return;
     }
+    if (!currentUser || !authToken) {
+      notify("Inicia sesion para adjuntar documentos de sesion", "error");
+      return;
+    }
     if (sessionFileInputRef.current) {
       sessionFileInputRef.current.click();
     }
@@ -655,7 +957,18 @@ function App() {
       return;
     }
 
+    if (!currentUser || !authToken) {
+      notify("Inicia sesion para adjuntar documentos de sesion", "error");
+      event.target.value = "";
+      return;
+    }
+
     const targetSessionId = ensureSessionContextId();
+    if (!targetSessionId) {
+      notify("No se pudo crear una sesion de usuario", "error");
+      event.target.value = "";
+      return;
+    }
     const attachments = files.map((file) => ({
       filename: file.name,
       file_type: file.type || file.name.split(".").pop() || "document",
@@ -699,8 +1012,17 @@ function App() {
       return;
     }
 
+    if (!currentUser || !authToken) {
+      notify("Inicia sesion para pegar imagenes en una sesion", "error");
+      return;
+    }
+
     event.preventDefault();
     const targetSessionId = ensureSessionContextId();
+    if (!targetSessionId) {
+      notify("No se pudo crear una sesion de usuario", "error");
+      return;
+    }
     const attachments = imageFiles.map((file) => ({
       filename: file.name,
       file_type: file.type || "image/png",
@@ -844,7 +1166,7 @@ function App() {
   const streamChat = async (payload, assistantIndex) => {
     const response = await fetch(`${apiBase}/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ ...payload, stream: true })
     });
 
@@ -896,7 +1218,9 @@ function App() {
             finalPayload = event;
             if (event.session_id) {
               setSessionId(event.session_id);
-              localStorage.setItem("sessionId", event.session_id);
+              if (currentUser?.user_id) {
+                localStorage.setItem(getSessionStorageKey(currentUser.user_id), event.session_id);
+              }
             }
           }
         } catch (_) {
@@ -925,6 +1249,11 @@ function App() {
   const sendMessage = async () => {
     const message = input.trim();
     if (!message || isSending) {
+      return;
+    }
+
+    if (!currentUser || !authToken) {
+      notify("Inicia sesion para usar el chat", "error");
       return;
     }
 
@@ -1005,22 +1334,43 @@ function App() {
   }, [provider, modelsForCurrentProvider, model]);
 
   useEffect(() => {
-    Promise.allSettled([loadConfig(), loadSessions(), loadHealth()]);
-  }, []);
-
-  useEffect(() => {
-    if (sessionId) {
-      loadHistory(sessionId).catch(() => {
-        setMessages([]);
-      });
+    Promise.allSettled([loadConfig(), loadHealth()]);
+    if (authToken) {
+      loadCurrentUser().catch(() => {});
+    } else {
+      setAuthReady(true);
     }
   }, []);
 
   useEffect(() => {
+    if (!currentUser) {
+      setSessions([]);
+      setMessages([]);
+      setSessionDocuments([]);
+      return;
+    }
+    loadSessions().catch(() => {});
+    const storedSessionId = localStorage.getItem(getSessionStorageKey(currentUser.user_id));
+    if (storedSessionId) {
+      loadHistory(storedSessionId).catch(() => {
+        setMessages([]);
+      });
+    } else {
+      setSessionId(null);
+      setMessages([]);
+      setSessionDocuments([]);
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (!currentUser || !sessionId) {
+      setSessionDocuments([]);
+      return;
+    }
     loadSessionDocuments(sessionId).catch(() => {
       setSessionDocuments([]);
     });
-  }, [sessionId]);
+  }, [sessionId, currentUser]);
 
   useEffect(() => {
     if (shouldStickToBottomRef.current) {
@@ -1076,6 +1426,22 @@ function App() {
             {sidebarOpen && <span>Configuracion</span>}
           </div>
 
+          {sidebarOpen && currentUser && (
+            <div className="user-card">
+              <strong>{currentUser.full_name}</strong>
+              <span>{currentUser.email}</span>
+              <span>{currentUser.agile_adoption_label}</span>
+              <button className="ghost-btn small-btn" onClick={logout}>Salir</button>
+            </div>
+          )}
+
+          {sidebarOpen && !currentUser && (
+            <div className="user-card empty">
+              <strong>Sesión cerrada</strong>
+              <span>Usa el panel central para iniciar sesión.</span>
+            </div>
+          )}
+
           {helpMenuOpen && (
             <div className="sidebar-help-menu">
               <button onClick={() => { setSettingsOpen(true); setHelpMenuOpen(false); }}>Configuracion avanzada</button>
@@ -1102,15 +1468,101 @@ function App() {
       <main className="chat-main">
         <div className="app-brand">Chatbot Agil</div>
 
+        {authReady && !currentUser && (
+          <section className="auth-gate">
+            <div className="auth-card">
+              <div className="auth-card-header">
+                <div>
+                  <div className="welcome-kicker">Acceso requerido</div>
+                  <h2>Inicia sesión o crea tu cuenta</h2>
+                  <p>Tu historial, tus sesiones y tu nivel de conocimiento se guardan por usuario.</p>
+                </div>
+                <div className="auth-tab-switcher">
+                  <button className={authMode === "login" ? "active" : ""} onClick={() => setAuthMode("login")}>Entrar</button>
+                  <button className={authMode === "register" ? "active" : ""} onClick={() => setAuthMode("register")}>Registrar</button>
+                </div>
+              </div>
+
+              {authError && <p className="auth-status error">{authError}</p>}
+              {authMessage && <p className="auth-status ok">{authMessage}</p>}
+
+              <div className="auth-grid">
+                <label>
+                  Email
+                  <input type="email" value={authForm.email} onChange={(event) => updateAuthField("email", event.target.value)} />
+                </label>
+                <label>
+                  Contraseña
+                  <input type="password" value={authForm.password} onChange={(event) => updateAuthField("password", event.target.value)} />
+                </label>
+
+                {authMode === "register" && (
+                  <>
+                    <label>
+                      Nombre y apellido
+                      <input type="text" value={authForm.full_name} onChange={(event) => updateAuthField("full_name", event.target.value)} />
+                    </label>
+                    <label>
+                      Tipo de cuenta
+                      <select value={authForm.account_type} onChange={(event) => updateAuthField("account_type", event.target.value)}>
+                        <option value="Profesor">Profesor</option>
+                        <option value="Estudiante">Estudiante</option>
+                      </select>
+                    </label>
+                    <label>
+                      Nivel declarado
+                      <select value={authForm.knowledge_level} onChange={(event) => updateAuthField("knowledge_level", Number(event.target.value))}>
+                        <option value={1}>1 Ninguno</option>
+                        <option value={2}>2 Inicial</option>
+                        <option value={3}>3 Intermedio</option>
+                        <option value={4}>4 Avanzado</option>
+                      </select>
+                    </label>
+
+                    <div className="questionnaire-block">
+                      <h3>Cuestionario de evaluación ágil</h3>
+                      <p>Selecciona la alternativa que mejor represente tu postura.</p>
+                      {AGILE_QUESTIONNAIRE.map((question, index) => (
+                        <label key={question.id} className="question-item">
+                          <span className="question-title">Pregunta {question.id}</span>
+                          <span className="question-statement">{question.statement}</span>
+                          <select
+                            value={authForm.questionnaire_answers[index]}
+                            onChange={(event) => updateQuestionnaireAnswer(index, event.target.value)}
+                          >
+                            <option value="">Seleccionar</option>
+                            {question.options.map((option) => (
+                              <option key={`${question.id}-${option.value}`} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="panel-actions">
+                <button className="primary-btn" onClick={submitAuth} disabled={authSubmitting}>
+                  {authSubmitting ? "Procesando..." : authMode === "login" ? "Entrar" : "Crear cuenta"}
+                </button>
+              </div>
+            </div>
+          </section>
+        )}
+
         <section ref={chatViewportRef} className="chat-viewport" onScroll={updateScrollState}>
-          {!hasMessages && (
+          {currentUser && !hasMessages && (
             <div className="welcome-panel">
-              <div className="welcome-kicker">Hola</div>
+              <div className="welcome-kicker">Hola, {currentUser.full_name}</div>
               <h2>¿Cómo puedo ayudarte hoy?</h2>
+              <p>Tu nivel detectado en Agilidad es {currentUser.agile_adoption_label}.</p>
             </div>
           )}
 
-          {hasMessages && (
+          {currentUser && hasMessages && (
             <div className="conversation-headline">
               {activeSession ? getSessionLabel(activeSession) : "Nueva conversacion"}
             </div>
@@ -1142,6 +1594,11 @@ function App() {
         </section>
 
         <footer className="chat-input-area">
+          {!currentUser && (
+            <div className="auth-inline-banner">
+              Inicia sesión para usar el chat y conservar tu historial personal.
+            </div>
+          )}
           <div className="input-shell">
             <input
               ref={sessionFileInputRef}
@@ -1164,7 +1621,7 @@ function App() {
               rows={1}
               value={input}
               onChange={(event) => setInput(event.target.value)}
-              placeholder="Pregunta a Agile Assistant"
+              placeholder={currentUser ? "Pregunta a Agile Assistant" : "Inicia sesión para usar el chat"}
               onPaste={handleSessionPaste}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {

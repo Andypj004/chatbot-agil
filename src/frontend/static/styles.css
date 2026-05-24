@@ -984,6 +984,184 @@ textarea::placeholder {
   gap: 8px;
 }
 
+.auth-gate,
+.auth-loading-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: start center;
+  padding: 28px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--primary) 26%, transparent), transparent 32%),
+    radial-gradient(circle at bottom right, color-mix(in srgb, var(--primary-strong) 22%, transparent), transparent 34%),
+    color-mix(in srgb, var(--bg) 86%, #000 14%);
+}
+
+.auth-card {
+  width: min(920px, 100%);
+  margin: auto 0;
+  max-height: calc(100vh - 56px);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  box-shadow: var(--shadow);
+  padding: 24px;
+  display: grid;
+  gap: 18px;
+  backdrop-filter: blur(14px);
+}
+
+.auth-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.auth-card h2 {
+  margin: 0;
+  font-size: clamp(1.6rem, 3vw, 2.4rem);
+  font-weight: 500;
+}
+
+.auth-card p {
+  margin: 8px 0 0;
+  color: var(--text-soft);
+}
+
+.auth-tab-switcher {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+
+.auth-tab-switcher button {
+  border: none;
+  background: transparent;
+  color: var(--text-soft);
+  padding: 9px 14px;
+  cursor: pointer;
+}
+
+.auth-tab-switcher button.active {
+  background: linear-gradient(180deg, var(--primary), var(--primary-strong));
+  color: #fff;
+}
+
+.auth-status {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.auth-status.ok {
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+}
+
+.auth-status.error {
+  border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
+  color: var(--danger);
+}
+
+.auth-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.auth-grid label,
+.question-item {
+  display: grid;
+  gap: 6px;
+  color: var(--text-soft);
+  font-size: 0.86rem;
+}
+
+.auth-grid label input,
+.auth-grid label select,
+.question-item select {
+  width: 100%;
+}
+
+.questionnaire-block {
+  grid-column: 1 / -1;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface-2);
+  padding: 14px;
+  display: grid;
+  gap: 14px;
+}
+
+.questionnaire-block h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.questionnaire-block p {
+  margin: 0;
+}
+
+.question-item {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-3) 70%, transparent);
+  padding: 10px;
+}
+
+.question-title {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.question-statement {
+  color: var(--text-soft);
+  line-height: 1.4;
+}
+
+.auth-inline-banner {
+  max-width: 800px;
+  margin: 0 auto 10px;
+  border: 1px solid color-mix(in srgb, var(--primary) 34%, var(--border));
+  background: color-mix(in srgb, var(--surface-2) 84%, var(--primary) 16%);
+  color: var(--text);
+  border-radius: 14px;
+  padding: 10px 12px;
+  text-align: center;
+}
+
+.user-card {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface-2);
+  padding: 12px;
+  display: grid;
+  gap: 4px;
+}
+
+.user-card strong {
+  font-size: 0.92rem;
+}
+
+.user-card span {
+  color: var(--text-soft);
+  font-size: 0.8rem;
+}
+
+.user-card.empty {
+  opacity: 0.92;
+}
+
 .doc-list {
   max-height: 270px;
   overflow: auto;
@@ -1184,5 +1362,20 @@ textarea::placeholder {
   .scroll-bottom-btn {
     right: 16px;
     bottom: 98px;
+  }
+
+  .auth-gate,
+  .auth-loading-panel {
+    padding: 14px;
+  }
+
+  .auth-card {
+    border-radius: 16px;
+    padding: 16px;
+    max-height: calc(100vh - 28px);
+  }
+
+  .auth-grid {
+    grid-template-columns: 1fr;
   }
 }
