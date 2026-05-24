@@ -47,8 +47,11 @@ class PromptManager:
         conversation_block: Optional[str] = None,
         rag_hint: Optional[str] = None,
         history_note: Optional[str] = None,
+        user_profile_note: Optional[str] = None,
     ) -> str:
         parts = [BASE_SYSTEM_PROMPT]
+        if user_profile_note:
+            parts.append(_format_context_block("Perfil del usuario", [user_profile_note]))
         if rag_hint:
             parts.append(_format_context_block("Contexto verificado", [rag_hint]))
         if history_note:
@@ -65,6 +68,7 @@ class PromptManager:
         conversation_block: Optional[str] = None,
         rag_hint: Optional[str] = None,
         history_note: Optional[str] = None,
+        user_profile_note: Optional[str] = None,
     ) -> str:
         parts = [BASE_SYSTEM_PROMPT]
         parts.append(
@@ -72,6 +76,8 @@ class PromptManager:
             "y breves pistas para analizar su propio proyecto. Concéntrate en preguntas que revelen supuestos, prioridades, riesgos y próximos pasos accionables. "
             "No hagas referencia al contexto de forma explícita; habla directamente al estudiante."
         )
+        if user_profile_note:
+            parts.append(_format_context_block("Perfil del usuario", [user_profile_note]))
         if rag_hint:
             parts.append(_format_context_block("Conocimiento de referencia", [rag_hint]))
         if history_note:
