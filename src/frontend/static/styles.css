@@ -88,6 +88,8 @@ textarea {
   width: 270px;
   z-index: 30;
   background: var(--surface);
+  backdrop-filter: var(--blur-md);
+  -webkit-backdrop-filter: var(--blur-md);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -173,6 +175,15 @@ textarea::placeholder {
   padding: 2px 4px;
 }
 
+.session-group-label {
+  font-size: 0.60rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  padding: 8px 10px 3px;
+}
+
 .session-list {
   flex: 1;
   overflow: auto;
@@ -185,14 +196,19 @@ textarea::placeholder {
   display: grid;
   grid-template-columns: 1fr auto auto;
   gap: 6px;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   border: 1px solid transparent;
   background: transparent;
+  transition: background 0.15s, border-color 0.15s;
 }
 
 .session-item.active {
-  border-color: var(--border);
-  background: var(--surface-2);
+  border-color: var(--primary-border);
+  background: var(--primary-bg);
+}
+
+.session-item.active .session-select strong {
+  color: var(--primary);
 }
 
 .session-select {
@@ -1162,22 +1178,24 @@ textarea::placeholder {
 }
 
 .user-card {
-  margin-top: 10px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
   background: var(--surface-2);
-  padding: 12px;
-  display: grid;
-  gap: 4px;
+  border: 1px solid var(--border);
 }
 
 .user-card strong {
-  font-size: 0.92rem;
+  font-size: 0.80rem;
+  font-weight: 600;
+  color: var(--text);
 }
 
 .user-card span {
+  font-size: 0.70rem;
   color: var(--text-soft);
-  font-size: 0.8rem;
 }
 
 .user-card.empty {
