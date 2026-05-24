@@ -525,6 +525,7 @@ function App() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const abortControllerRef = React.useRef(null);
   const [pendingAttachments, setPendingAttachments] = useState([]);
 
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -1171,10 +1172,12 @@ function App() {
   };
 
   const streamChat = async (payload, assistantIndex) => {
+    abortControllerRef.current = new AbortController();
     const response = await fetch(`${apiBase}/chat`, {
       method: "POST",
       headers: authHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify({ ...payload, stream: true })
+      body: JSON.stringify({ ...payload, stream: true }),
+      signal: abortControllerRef.current.signal
     });
 
     if (!response.ok || !response.body) {
@@ -1250,6 +1253,12 @@ function App() {
     const latestSessionId = finalPayload?.session_id || payload.session_id;
     if (latestSessionId) {
       await loadSessionDocuments(latestSessionId);
+    }
+  };
+
+  const cancelStream = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
     }
   };
 
@@ -1584,11 +1593,22 @@ function App() {
           <div className="messages-stack">
             {messages.map((item, index) => (
               <article key={`${item.role}-${index}`} className={`bubble ${item.role}`}>
-                {String(item.role || "").toLowerCase() !== "user" && String(item.content || "").trim().length > 0
-                  ? <MarkdownContent content={item.content} enabled={markdownRendering} />
-                  : String(item.role || "").toLowerCase() === "user"
-                    ? <p>{item.content}</p>
-                    : null}
+                {String(item.role || "").toLowerCase() === "user"
+                  ? <p>{item.content}</p>
+                  : String(item.content || "").trim().length > 0
+                    ? <MarkdownContent content={item.content} enabled={markdownRendering} />
+                    : item.role === "assistant" && isSending && index === messages.length - 1
+                      ? (
+                          <div className="streaming-row">
+                            <div className="typing-indicator">
+                              <div className="typing-dot"></div>
+                              <div className="typing-dot"></div>
+                              <div className="typing-dot"></div>
+                            </div>
+                            <button className="cancel-stream-btn" onClick={cancelStream}>✕ Cancelar</button>
+                          </div>
+                        )
+                      : null}
                 {Array.isArray(item.attachments) && item.attachments.length > 0 && (
                   <div className="message-attachments">
                     {item.attachments.map((attachment, attachmentIndex) => (
