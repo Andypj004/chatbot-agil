@@ -364,9 +364,9 @@ function validateRegistrationForm(authForm) {
 }
 
 function SourceReferences({ sources = [] }) {
-  const [isOpen, setIsOpen] = useState(false);
   const sortedSources = useMemo(() => {
-    return [...sources].sort((left, right) => Number(right.relevance || 0) - Number(left.relevance || 0));
+    return [...sources]
+      .sort((left, right) => Number(right.relevance || 0) - Number(left.relevance || 0));
   }, [sources]);
 
   if (!sortedSources.length) {
@@ -374,43 +374,23 @@ function SourceReferences({ sources = [] }) {
   }
 
   return (
-    <div className="sources-block">
-      <button className="sources-toggle" onClick={() => setIsOpen((value) => !value)}>
-        <span>{isOpen ? "Ocultar" : "Ver"} fuentes</span>
-        <span className="sources-count">{sortedSources.length}</span>
-      </button>
-
-      {isOpen && (
-        <div className="sources-panel">
-          {sortedSources.map((source, sourceIndex) => {
-            const sourceTitle = source.filename || source.source || "Documento";
-            const excerpt = source.excerpt || "Sin extracto disponible.";
-            const sourceHint = source.source || source.document_id || "Referencia";
-            const scopeLabel = source.scope === "session_chat" ? "Sesion" : "Global";
-            const pageLabel = source.page ? `Pagina ${source.page}` : null;
-            const sectionLabel = source.section ? `Seccion: ${source.section}` : null;
-
-            return (
-              <article key={`${sourceTitle}-${sourceIndex}`} className="source-card">
-                <div className="source-card-head">
-                  <strong>{sourceTitle}</strong>
-                  <div className="source-card-pills">
-                    <span className="source-pill">{scopeLabel}</span>
-                    <span className="source-pill">{sourceIndex + 1}</span>
-                  </div>
-                </div>
-                <p className="source-meta">{sourceHint}</p>
-                {(pageLabel || sectionLabel) && (
-                  <p className="source-location">
-                    {[pageLabel, sectionLabel].filter(Boolean).join(" · ")}
-                  </p>
-                )}
-                <p className="source-excerpt">{excerpt}</p>
-              </article>
-            );
-          })}
-        </div>
-      )}
+    <div className="source-chips">
+      {sortedSources.map((source, index) => {
+        const title = source.filename || source.source || "Documento";
+        const excerpt = source.excerpt
+          ? source.excerpt.slice(0, 120) + (source.excerpt.length > 120 ? "…" : "")
+          : "Sin extracto disponible.";
+        return (
+          <span key={`${title}-${index}`} className="source-chip">
+            <span className="source-chip-num">{index + 1}</span>
+            {title}
+            <span className="source-chip-tooltip">
+              <strong>{title}</strong>
+              {excerpt}
+            </span>
+          </span>
+        );
+      })}
     </div>
   );
 }
