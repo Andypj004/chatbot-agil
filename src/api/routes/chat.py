@@ -3,13 +3,19 @@
 import json
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from fastapi.responses import StreamingResponse
 
 from src.api.models import ChatRequest, ChatResponse
-from src.api.dependencies import get_llm_provider, get_chatbot_agent, get_session_manager
+from src.api.dependencies import (
+    get_llm_provider,
+    get_chatbot_agent,
+    get_session_manager,
+    get_current_user_optional,
+)
 from src.core.config import settings
 from src.core.logger import get_logger
+from src.core.security import build_user_profile_context
 
 logger = get_logger()
 
@@ -30,7 +36,10 @@ def _build_human_session_title(message: str) -> str:
 
 
 @router.post("", response_model=ChatResponse, summary="Send a message to the chatbot")
-async def chat(request: ChatRequest):
+async def chat(
+    request: ChatRequest,
+    current_user=Depends(get_current_user_optional),
+):
     """Send a message to the chatbot and get a response
     
     The chatbot can use:
@@ -48,7 +57,16 @@ async def chat(request: ChatRequest):
     try:
         session_id = request.session_id or str(uuid4())
         session_manager = get_session_manager()
-        session_manager.create_session(session_id)
+        user_id = current_user.get("user_id") if current_user else None
+        session_manager.create_session(session_id, user_id=user_id)
+
+        existing_session = session_manager.get_session_record(session_id)
+        if existing_session is not None and existing_session.get("user_id") not in (None, user_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Session does not belong to the authenticated user",
+            )
+
         session_documents = session_manager.get_session_documents_by_ids(
             session_id=session_id,
             document_ids=request.session_document_ids,
@@ -93,6 +111,8 @@ async def chat(request: ChatRequest):
             model_name=request.model_name,
             temperature=request.temperature
         )
+
+        user_profile_note = build_user_profile_context(current_user)
         
         # Get chatbot agent
         agent = get_chatbot_agent(
@@ -120,6 +140,7 @@ async def chat(request: ChatRequest):
                     session_id=session_id,
                     session_documents=session_documents,
                     session_manager=session_manager,
+                    user_profile_note=user_profile_note or None,
                 ):
                     if event.get("type") == "delta":
                         content = event.get("content", "")
@@ -155,6 +176,7 @@ async def chat(request: ChatRequest):
             session_id=session_id,
             session_documents=session_documents,
             session_manager=session_manager,
+            user_profile_note=user_profile_note or None,
         )
 
         session_manager.append_message(
