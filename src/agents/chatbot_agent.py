@@ -190,6 +190,7 @@ class ChatbotAgent:
         conversation_messages: Optional[List[Dict[str, Any]]] = None,
         rag_hint: Optional[str] = None,
         history_note: Optional[str] = None,
+        user_profile_note: Optional[str] = None,
     ) -> str:
         conversation_block = self._build_conversation_block(conversation_messages)
         return self.prompt_manager.build_direct_prompt(
@@ -197,6 +198,7 @@ class ChatbotAgent:
             conversation_block=conversation_block or None,
             rag_hint=rag_hint,
             history_note=history_note,
+            user_profile_note=user_profile_note,
         )
 
     def _build_socratic_prompt(
@@ -205,6 +207,7 @@ class ChatbotAgent:
         conversation_messages: Optional[List[Dict[str, Any]]] = None,
         rag_hint: Optional[str] = None,
         history_note: Optional[str] = None,
+        user_profile_note: Optional[str] = None,
     ) -> str:
         conversation_block = self._build_conversation_block(conversation_messages)
         return self.prompt_manager.build_socratic_prompt(
@@ -212,6 +215,7 @@ class ChatbotAgent:
             conversation_block=conversation_block or None,
             rag_hint=rag_hint,
             history_note=history_note,
+            user_profile_note=user_profile_note,
         )
 
     def _generate_direct_response(
@@ -220,6 +224,7 @@ class ChatbotAgent:
         conversation_messages: Optional[List[Dict[str, Any]]] = None,
         rag_hint: Optional[str] = None,
         history_note: Optional[str] = None,
+        user_profile_note: Optional[str] = None,
     ) -> str:
         """Generate a direct response without orchestration overhead."""
         prompt = self._build_direct_prompt(
@@ -227,6 +232,7 @@ class ChatbotAgent:
             conversation_messages=conversation_messages,
             rag_hint=rag_hint,
             history_note=history_note,
+            user_profile_note=user_profile_note,
         )
         return self._invoke_llm(prompt)
 
@@ -236,12 +242,14 @@ class ChatbotAgent:
         conversation_messages: Optional[List[Dict[str, Any]]] = None,
         rag_hint: Optional[str] = None,
         history_note: Optional[str] = None,
+        user_profile_note: Optional[str] = None,
     ) -> str:
         prompt = self._build_socratic_prompt(
             message=message,
             conversation_messages=conversation_messages,
             rag_hint=rag_hint,
             history_note=history_note,
+            user_profile_note=user_profile_note,
         )
         return self._invoke_llm(prompt)
 
@@ -251,6 +259,7 @@ class ChatbotAgent:
         conversation_messages: Optional[List[Dict[str, Any]]] = None,
         rag_hint: Optional[str] = None,
         history_note: Optional[str] = None,
+        user_profile_note: Optional[str] = None,
     ) -> Iterator[str]:
         """Yield direct response tokens/chunks as they arrive."""
         llm = self.llm_provider.get_llm()
@@ -259,6 +268,7 @@ class ChatbotAgent:
             conversation_messages=conversation_messages,
             rag_hint=rag_hint,
             history_note=history_note,
+            user_profile_note=user_profile_note,
         )
 
         if hasattr(llm, "stream"):
@@ -297,6 +307,7 @@ class ChatbotAgent:
         message: str,
         conversation_messages: Optional[List[Dict[str, Any]]],
         rag_hint: Optional[str],
+        user_profile_note: Optional[str] = None,
     ) -> str:
         conversation_block = self._build_conversation_block(conversation_messages)
         prompt_parts = [
@@ -304,6 +315,7 @@ class ChatbotAgent:
                 message=message,
                 conversation_block=conversation_block or None,
                 rag_hint=rag_hint,
+                user_profile_note=user_profile_note,
             )
         ]
         prompt_parts.append(
@@ -517,6 +529,7 @@ class ChatbotAgent:
         session_id: Optional[str] = None,
         session_documents: Optional[List[Dict[str, Any]]] = None,
         session_manager: Optional[Any] = None,
+        user_profile_note: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Send a message to the chatbot.
 
@@ -583,12 +596,14 @@ class ChatbotAgent:
                     conversation_messages=conversation_messages,
                     rag_hint=rag_hint,
                     history_note=history_note,
+                    user_profile_note=user_profile_note,
                 )
             elif image_paths:
                 multimodal_prompt = self._build_multimodal_prompt(
                     message=message,
                     conversation_messages=conversation_messages,
                     rag_hint=rag_hint,
+                    user_profile_note=user_profile_note,
                 )
                 response = self._generate_multimodal_response(multimodal_prompt, image_paths)
             elif rag_hint is None:
@@ -597,6 +612,7 @@ class ChatbotAgent:
                     conversation_messages=conversation_messages,
                     rag_hint=rag_hint,
                     history_note=history_note,
+                    user_profile_note=user_profile_note,
                 )
             else:
                 response = rag_hint
@@ -651,6 +667,7 @@ class ChatbotAgent:
         session_id: Optional[str] = None,
         session_documents: Optional[List[Dict[str, Any]]] = None,
         session_manager: Optional[Any] = None,
+        user_profile_note: Optional[str] = None,
     ) -> Iterator[Dict[str, Any]]:
         """Yield partial chunks and a final payload for streaming responses."""
         used_rag = False
@@ -718,6 +735,7 @@ class ChatbotAgent:
                 conversation_messages=conversation_messages,
                 rag_hint=rag_hint,
                 history_note=history_note,
+                user_profile_note=user_profile_note,
             )
             for token in response.split(" "):
                 if token:
@@ -729,6 +747,7 @@ class ChatbotAgent:
                     message=message,
                     conversation_messages=conversation_messages,
                     rag_hint=rag_hint,
+                    user_profile_note=user_profile_note,
                 ),
                 image_paths=image_paths,
             )
@@ -747,6 +766,7 @@ class ChatbotAgent:
                 conversation_messages=conversation_messages,
                 rag_hint=rag_hint,
                 history_note=history_note,
+                user_profile_note=user_profile_note,
             ):
                 yield {"type": "delta", "content": chunk}
                 response_parts.append(chunk)
