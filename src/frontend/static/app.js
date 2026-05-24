@@ -1312,16 +1312,18 @@ function App() {
       await loadSessions(sessionSearch);
       setPendingAttachments([]);
     } catch (error) {
-      notify(`Error de chat: ${error.message}`, "error");
-      setMessages((current) => {
-        const next = [...current];
-        next[assistantIndex] = {
-          role: "assistant",
-          content: `No se pudo completar la respuesta en streaming: ${error.message}`,
-          sources: []
-        };
-        return next;
-      });
+      if (error.name !== "AbortError") {
+        notify(`Error de chat: ${error.message}`, "error");
+        setMessages((current) => {
+          const next = [...current];
+          next[assistantIndex] = {
+            role: "assistant",
+            content: `No se pudo completar la respuesta en streaming: ${error.message}`,
+            sources: []
+          };
+          return next;
+        });
+      }
     } finally {
       setIsSending(false);
     }
