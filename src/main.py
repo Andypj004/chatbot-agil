@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.api.dependencies import get_llm_provider, get_vector_store, get_document_processor
-from src.api.routes import chat, documents, config, health, sessions, forms, debug
+from src.api.routes import auth, chat, documents, config, health, sessions, forms, debug
 from src.core.config import settings
 from src.core.logger import get_logger
 from src import __version__
@@ -123,6 +123,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(chat.router, prefix="/api/v1")
+app.include_router(auth.router, prefix="/api/v1")
 app.include_router(sessions.router, prefix="/api/v1")
 app.include_router(documents.router, prefix="/api/v1")
 app.include_router(config.router, prefix="/api/v1")
