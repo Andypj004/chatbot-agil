@@ -24,16 +24,15 @@ logger = get_logger()
 class RAGRetriever:
     """Retrieval-Augmented Generation system"""
     
-    DEFAULT_PROMPT_TEMPLATE = """Eres un asistente experto en metodologías ágiles. Usa el siguiente contexto para responder la pregunta.
-Responde siempre en español, de forma clara y detallada.
-Si la respuesta no está en el contexto, indícalo claramente en lugar de inventar información.
+    DEFAULT_PROMPT_TEMPLATE = """Eres un experto en metodologías ágiles. Responde siempre en español, de forma clara, directa y educativa.
+Usa el siguiente conocimiento para fundamentar tu respuesta. Habla con autoridad propia sin mencionar ni insinuar que tienes un "contexto" o "documentos".
 
-Contexto:
+Conocimiento:
 {context}
 
 Pregunta: {question}
 
-Respuesta en español:"""
+Respuesta:"""
     
     def __init__(
         self,

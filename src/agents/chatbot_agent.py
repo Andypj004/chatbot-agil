@@ -569,7 +569,9 @@ class ChatbotAgent:
 
 
             rag_hint: Optional[str] = None
-            if not classification.is_project_context and use_rag and self.rag_retriever and self.rag_retriever.has_documents():
+            rag_documents: List[Any] = []
+
+            if use_rag and self.rag_retriever and self.rag_retriever.has_documents():
                 contextual_message = message
                 conversation_block = self._build_conversation_block(conversation_messages)
                 if conversation_block:
@@ -579,13 +581,13 @@ class ChatbotAgent:
                         f"Pregunta actual: {message}"
                     )
 
-                rag_result = self.rag_retriever.query(
+                rag_documents = self.rag_retriever.retrieve_documents(
                     contextual_message,
-                    return_sources=True,
                     session_id=session_id,
                 )
-                rag_hint = rag_result["answer"]
-                used_rag = True
+                if rag_documents:
+                    rag_hint = self.rag_retriever._build_context(rag_documents)
+                    used_rag = True
 
             image_documents = [item for item in (session_documents or []) if self._is_image_document(item)]
             image_paths = [str(item.get("source") or "") for item in image_documents if item.get("source")]
@@ -606,7 +608,7 @@ class ChatbotAgent:
                     user_profile_note=user_profile_note,
                 )
                 response = self._generate_multimodal_response(multimodal_prompt, image_paths)
-            elif rag_hint is None:
+            else:
                 response = self._generate_direct_response(
                     message,
                     conversation_messages=conversation_messages,
@@ -614,11 +616,9 @@ class ChatbotAgent:
                     history_note=history_note,
                     user_profile_note=user_profile_note,
                 )
-            else:
-                response = rag_hint
 
-            if sources or used_rag:
-                raw_sources = rag_result.get("sources") if 'rag_result' in locals() else []
+            if used_rag:
+                raw_sources = [{"content": doc.page_content, "metadata": doc.metadata} for doc in rag_documents]
                 filtered_sources = self._filter_relevant_sources(
                     response,
                     raw_sources or [],
@@ -708,7 +708,9 @@ class ChatbotAgent:
             except Exception:
                 recent_citation_keys = set()
 
-        if not classification.is_project_context and use_rag and self.rag_retriever and self.rag_retriever.has_documents():
+        rag_documents: List[Any] = []
+
+        if use_rag and self.rag_retriever and self.rag_retriever.has_documents():
             contextual_message = message
             conversation_block = self._build_conversation_block(conversation_messages)
             if conversation_block:
@@ -718,13 +720,13 @@ class ChatbotAgent:
                     f"Pregunta actual: {message}"
                 )
 
-            rag_result = self.rag_retriever.query(
+            rag_documents = self.rag_retriever.retrieve_documents(
                 contextual_message,
-                return_sources=True,
                 session_id=session_id,
             )
-            rag_hint = rag_result["answer"]
-            used_rag = True
+            if rag_documents:
+                rag_hint = self.rag_retriever._build_context(rag_documents)
+                used_rag = True
 
         image_documents = [item for item in (session_documents or []) if self._is_image_document(item)]
         image_paths = [str(item.get("source") or "") for item in image_documents if item.get("source")]
@@ -755,11 +757,6 @@ class ChatbotAgent:
                 if token:
                     yield {"type": "delta", "content": f"{token} "}
                     response_parts.append(f"{token} ")
-        elif rag_hint is not None:
-            for token in rag_hint.split(" "):
-                if token:
-                    yield {"type": "delta", "content": f"{token} "}
-                    response_parts.append(f"{token} ")
         else:
             for chunk in self._generate_direct_response_stream(
                 message,
@@ -772,7 +769,7 @@ class ChatbotAgent:
                 response_parts.append(chunk)
 
         full_response = "".join(response_parts).strip()
-        raw_sources = rag_result.get("sources") if 'rag_result' in locals() else []
+        raw_sources = [{"content": doc.page_content, "metadata": doc.metadata} for doc in rag_documents]
         filtered_sources = self._filter_relevant_sources(
             full_response,
             raw_sources or [],
