@@ -45,11 +45,11 @@ class Settings(BaseSettings):
     )
     
     # RAG Configuration
-    chunk_size: int = Field(default=1000, alias="CHUNK_SIZE")
-    chunk_overlap: int = Field(default=200, alias="CHUNK_OVERLAP")
-    top_k_results: int = Field(default=5, alias="TOP_K_RESULTS")
-    rag_context_max_chars: int = Field(default=6000, alias="RAG_CONTEXT_MAX_CHARS")
-    rag_max_chunks_per_file: int = Field(default=3, alias="RAG_MAX_CHUNKS_PER_FILE")
+    chunk_size: int = Field(default=1500, alias="CHUNK_SIZE")
+    chunk_overlap: int = Field(default=300, alias="CHUNK_OVERLAP")
+    top_k_results: int = Field(default=8, alias="TOP_K_RESULTS")
+    rag_context_max_chars: int = Field(default=10000, alias="RAG_CONTEXT_MAX_CHARS")
+    rag_max_chunks_per_file: int = Field(default=5, alias="RAG_MAX_CHUNKS_PER_FILE")
 
     # Conversation history / memory
     conversation_db_path: str = Field(

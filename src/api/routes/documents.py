@@ -6,7 +6,12 @@ from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, status
 from pathlib import Path
 
 from src.api.models import DocumentUploadResponse, DocumentListResponse, DocumentInfo
-from src.api.dependencies import get_vector_store, get_document_processor, get_session_manager
+from src.api.dependencies import (
+    get_vector_store,
+    get_document_processor,
+    get_session_manager,
+    get_current_user_optional,
+)
 from src.rag.vector_store import VectorStore
 from src.rag.document_processor import DocumentProcessor
 from src.memory.session_manager import SessionManager
@@ -157,12 +162,21 @@ async def upload_session_document(
     vector_store: VectorStore = Depends(get_vector_store),
     doc_processor: DocumentProcessor = Depends(get_document_processor),
     session_manager: SessionManager = Depends(get_session_manager),
+    current_user=Depends(get_current_user_optional),
 ):
     """Upload a document restricted to one chat session."""
     logger.info(f"Received session document upload for session={session_id}: {file.filename}")
 
     try:
-        session_manager.create_session(session_id)
+        owner_id = current_user.get("user_id") if current_user else None
+        existing_session = session_manager.get_session_record(session_id)
+        if existing_session is not None and existing_session.get("user_id") not in (None, owner_id):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Session {session_id} not found",
+            )
+
+        session_manager.create_session(session_id, user_id=owner_id)
         destination = f"data/uploads/sessions/{session_id}"
         file_path = await save_uploaded_file(file, destination_dir=destination)
         base_id = _build_document_id(file_path, scope=SESSION_SCOPE, session_id=session_id)
@@ -246,10 +260,16 @@ async def list_documents(
 async def list_session_documents(
     session_id: str,
     session_manager: SessionManager = Depends(get_session_manager),
+    current_user=Depends(get_current_user_optional),
 ):
     """List session-scoped documents attached to one chat session."""
     logger.info(f"Listing session documents for session={session_id}")
     try:
+        owner_id = current_user.get("user_id") if current_user else None
+        session = session_manager.get_session_record(session_id)
+        if session is None or session.get("user_id") not in (None, owner_id):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Session {session_id} not found")
+
         documents = [DocumentInfo(**item) for item in session_manager.list_session_documents(session_id)]
         if not documents:
             documents = _list_uploaded_files_fallback(
@@ -310,11 +330,20 @@ async def delete_session_document(
     document_id: str,
     vector_store: VectorStore = Depends(get_vector_store),
     session_manager: SessionManager = Depends(get_session_manager),
+    current_user=Depends(get_current_user_optional),
 ):
     """Delete a session-scoped document by document_id."""
     logger.info(f"Deleting session document: session={session_id}, document={document_id}")
 
     try:
+        owner_id = current_user.get("user_id") if current_user else None
+        session = session_manager.get_session_record(session_id)
+        if session is None or session.get("user_id") not in (None, owner_id):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Document {document_id} not found in session {session_id}",
+            )
+
         session_docs = session_manager.list_session_documents(session_id)
         match = next((item for item in session_docs if item.get("document_id") == document_id), None)
         if match is None:
@@ -350,10 +379,16 @@ async def clear_session_documents(
     session_id: str,
     vector_store: VectorStore = Depends(get_vector_store),
     session_manager: SessionManager = Depends(get_session_manager),
+    current_user=Depends(get_current_user_optional),
 ):
     """Clear all session-scoped documents for one chat session."""
     logger.warning(f"Clearing session documents: session={session_id}")
     try:
+        owner_id = current_user.get("user_id") if current_user else None
+        session = session_manager.get_session_record(session_id)
+        if session is None or session.get("user_id") not in (None, owner_id):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Session {session_id} not found")
+
         vector_store.delete_by_metadata({"scope": SESSION_SCOPE, "session_id": session_id})
 
         session_docs = session_manager.list_session_documents(session_id)

@@ -1,6 +1,6 @@
 """Pydantic models for API requests and responses"""
 
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 from pydantic import BaseModel, Field, ConfigDict
 
 
@@ -17,6 +17,57 @@ class SessionAttachment(APIBaseModel):
     filename: Optional[str] = None
     file_type: Optional[str] = None
     source_url: Optional[str] = None
+
+
+class QuestionnaireAnswer(APIBaseModel):
+    """Single answer in the agile adoption questionnaire."""
+
+    question_number: int = Field(..., ge=1, le=5)
+    answer: Literal["a", "b", "c", "d"]
+
+
+class UserRegistrationRequest(APIBaseModel):
+    """Request model for registering a new user."""
+
+    email: str = Field(..., min_length=3)
+    password: str = Field(..., min_length=8)
+    full_name: str = Field(..., min_length=3, max_length=120)
+    account_type: Literal["Profesor", "Estudiante"]
+    knowledge_level: int = Field(..., ge=1, le=4)
+    questionnaire_answers: List[QuestionnaireAnswer] = Field(
+        default_factory=list,
+        description="Optional agile adoption questionnaire answers",
+    )
+
+
+class UserLoginRequest(APIBaseModel):
+    """Request model for logging in a user."""
+
+    email: str = Field(..., min_length=3)
+    password: str = Field(..., min_length=1)
+
+
+class UserProfileResponse(APIBaseModel):
+    """Response model for authenticated user profile data."""
+
+    user_id: str
+    email: str
+    full_name: str
+    account_type: str
+    knowledge_level: int
+    agile_adoption_level: int
+    agile_adoption_label: str
+    created_at: str
+    updated_at: str
+    last_login_at: Optional[str] = None
+
+
+class AuthResponse(APIBaseModel):
+    """Response model for register/login endpoints."""
+
+    access_token: str
+    token_type: str = "bearer"
+    user: UserProfileResponse
 
 
 class ChatRequest(APIBaseModel):
@@ -36,6 +87,18 @@ class ChatRequest(APIBaseModel):
         default_factory=list,
         description="Optional attachment metadata to persist with the chat turn",
     )
+
+
+class CurrentUserInfo(APIBaseModel):
+    """Compact authenticated user payload used internally by dependencies."""
+
+    user_id: str
+    email: str
+    full_name: str
+    account_type: str
+    knowledge_level: int
+    agile_adoption_level: int
+    agile_adoption_label: str
 
 
 class SourceCitation(APIBaseModel):
@@ -82,6 +145,7 @@ class SessionSummary(APIBaseModel):
     """Conversation session summary."""
 
     session_id: str
+    user_id: Optional[str] = None
     title: Optional[str] = None
     created_at: str
     updated_at: str

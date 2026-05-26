@@ -1,9 +1,62 @@
 const { useEffect, useMemo, useRef, useState } = React;
 
 const DEFAULT_API_BASE = `${window.location.origin}/api/v1`;
-const DEFAULT_SESSION = localStorage.getItem("sessionId") || null;
 const MAX_SESSION_LABEL_LENGTH = 56;
 const DEFAULT_MARKDOWN_RENDERING = true;
+const AUTH_TOKEN_KEY = "authToken";
+const AUTH_USER_KEY = "authUser";
+const AGILE_QUESTIONNAIRE = [
+  {
+    id: 1,
+    statement: "Ante una modificación imprevista en los requisitos del software a mitad del ciclo de desarrollo, ¿cuál considera que es la postura metodológica correcta?",
+    options: [
+      { value: "a", label: "a) Evitar o penalizar el cambio porque rompe la planificación inicial y pone en riesgo el cronograma acordado." },
+      { value: "b", label: "b) Aceptar el cambio por exigencia, aunque genere frustración y desorganización interna al alterar el alcance ya pactado." },
+      { value: "c", label: "c) Mantener una actitud de bienvenida hacia el cambio, entendiéndolo como parte de un proceso de aprendizaje continuo para maximizar el valor real entregado al cliente." },
+      { value: "d", label: "d) No conozco" },
+    ],
+  },
+  {
+    id: 2,
+    statement: "Con respecto a la frecuencia de las entregas y la planificación del producto:",
+    options: [
+      { value: "a", label: "a) Se planifica todo el proyecto al inicio y se realiza una única entrega formal y completa al finalizar el proceso." },
+      { value: "b", label: "b) Se entrega software en periodos fijos, pero el feedback del cliente se procesa tarde, afectando poco la planificación de los siguientes ciclos." },
+      { value: "c", label: "c) Se entrega software funcional de manera temprana y frecuente para obtener retroalimentación crucial que moldee el alcance y la dirección de la siguiente planificación." },
+      { value: "d", label: "d) No conozco" },
+    ],
+  },
+  {
+    id: 3,
+    statement: "¿Cómo se concibe la dinámica de trabajo, la asignación de tareas y las interacciones dentro del equipo?",
+    options: [
+      { value: "a", label: "a) Las tareas son asignadas y supervisadas de forma individual y centralizada por un líder o gerente de proyecto." },
+      { value: "b", label: "b) El equipo se reúne para revisar tareas, pero la toma de decisiones y la responsabilidad siguen dependiendo de un control externo." },
+      { value: "c", label: "c) El éxito se basa en las personas y sus interacciones; el equipo es multifuncional, se autogestiona y colabora diariamente de forma transparente." },
+      { value: "d", label: "d) No conozco" },
+    ],
+  },
+  {
+    id: 4,
+    statement: "Para asegurar la sostenibilidad del software en entornos de ritmo rápido, ¿cuándo se define que una funcionalidad está realmente concluida?",
+    options: [
+      { value: "a", label: "a) Cuando el desarrollador termina de escribir el código en su máquina local, delegando las pruebas a terceros." },
+      { value: "b", label: "b) Cuando la funcionalidad pasa filtros básicos de pruebas individuales, aunque queden pendientes integraciones o revisiones de calidad global." },
+      { value: "c", label: "c) Cuando cumple estrictamente con un compromiso de calidad y código limpio (Definition of Done), estando totalmente integrado, probado y listo para producción." },
+      { value: "d", label: "d) No conozco" },
+    ],
+  },
+  {
+    id: 5,
+    statement: "¿Cómo debe ser la relación e interacción con el cliente y los stakeholders durante el desarrollo?",
+    options: [
+      { value: "a", label: "a) Contractual y limitada a puntos específicos del proyecto (inicio y entrega final) para evitar corrupciones en el alcance." },
+      { value: "b", label: "b) Intermitente; se le consulta al cliente únicamente cuando surgen dudas puntuales o en demostraciones programadas al final de hitos largos." },
+      { value: "c", label: "c) Significativa, frecuente y colaborativa a lo largo de todo el esfuerzo de desarrollo para asegurar que el producto satisfaga las necesidades reales del negocio." },
+      { value: "d", label: "d) No conozco" },
+    ],
+  },
+];
 const hasMarked = typeof window.marked !== "undefined";
 const hasDomPurify = typeof window.DOMPurify !== "undefined";
 
@@ -221,7 +274,7 @@ function truncateText(text, max = MAX_SESSION_LABEL_LENGTH) {
 
 function getSessionLabel(session) {
   if (!session) {
-    return "Nueva conversacion";
+    return "Nueva conversación";
   }
 
   const title = truncateText(session.title || "");
@@ -255,10 +308,66 @@ function attachmentKindLabel(item) {
     : String(item?.file_type || "Documento").toUpperCase();
 }
 
+function getSessionStorageKey(userId) {
+  return userId ? `sessionId:${userId}` : "sessionId:anonymous";
+}
+
+function formatApiDetail(payload, fallbackStatus) {
+  if (!payload) {
+    return `HTTP ${fallbackStatus}`;
+  }
+
+  const detail = payload.detail ?? payload;
+
+  if (typeof detail === "string") {
+    return detail;
+  }
+
+  if (Array.isArray(detail)) {
+    const lines = detail.map((item) => {
+      const location = Array.isArray(item?.loc) ? item.loc.join(".") : "campo";
+      const message = item?.msg || JSON.stringify(item);
+      return `${location}: ${message}`;
+    });
+    return lines.join("\n");
+  }
+
+  if (typeof detail === "object") {
+    return JSON.stringify(detail);
+  }
+
+  return `HTTP ${fallbackStatus}`;
+}
+
+function validateRegistrationForm(authForm) {
+  if (!String(authForm.email || "").trim()) {
+    return "El email es obligatorio.";
+  }
+
+  if (!String(authForm.password || "").trim()) {
+    return "La contraseña es obligatoria.";
+  }
+
+  if (String(authForm.password || "").trim().length < 8) {
+    return "La contraseña debe tener al menos 8 caracteres.";
+  }
+
+  const firstName = String(authForm.first_name || "").trim();
+  const lastName = String(authForm.last_name || "").trim();
+  if (!firstName || !lastName) {
+    return "El nombre y el apellido son obligatorios.";
+  }
+  if (firstName.length < 2 || lastName.length < 2) {
+    return "Nombre y apellido deben tener al menos 2 caracteres cada uno.";
+  }
+
+  return null;
+}
+
 function SourceReferences({ sources = [] }) {
-  const [isOpen, setIsOpen] = useState(false);
   const sortedSources = useMemo(() => {
-    return [...sources].sort((left, right) => Number(right.relevance || 0) - Number(left.relevance || 0));
+    return [...sources]
+      .sort((left, right) => Number(right.relevance || 0) - Number(left.relevance || 0));
   }, [sources]);
 
   if (!sortedSources.length) {
@@ -266,43 +375,23 @@ function SourceReferences({ sources = [] }) {
   }
 
   return (
-    <div className="sources-block">
-      <button className="sources-toggle" onClick={() => setIsOpen((value) => !value)}>
-        <span>{isOpen ? "Ocultar" : "Ver"} fuentes</span>
-        <span className="sources-count">{sortedSources.length}</span>
-      </button>
-
-      {isOpen && (
-        <div className="sources-panel">
-          {sortedSources.map((source, sourceIndex) => {
-            const sourceTitle = source.filename || source.source || "Documento";
-            const excerpt = source.excerpt || "Sin extracto disponible.";
-            const sourceHint = source.source || source.document_id || "Referencia";
-            const scopeLabel = source.scope === "session_chat" ? "Sesion" : "Global";
-            const pageLabel = source.page ? `Pagina ${source.page}` : null;
-            const sectionLabel = source.section ? `Seccion: ${source.section}` : null;
-
-            return (
-              <article key={`${sourceTitle}-${sourceIndex}`} className="source-card">
-                <div className="source-card-head">
-                  <strong>{sourceTitle}</strong>
-                  <div className="source-card-pills">
-                    <span className="source-pill">{scopeLabel}</span>
-                    <span className="source-pill">{sourceIndex + 1}</span>
-                  </div>
-                </div>
-                <p className="source-meta">{sourceHint}</p>
-                {(pageLabel || sectionLabel) && (
-                  <p className="source-location">
-                    {[pageLabel, sectionLabel].filter(Boolean).join(" · ")}
-                  </p>
-                )}
-                <p className="source-excerpt">{excerpt}</p>
-              </article>
-            );
-          })}
-        </div>
-      )}
+    <div className="source-chips">
+      {sortedSources.map((source, index) => {
+        const title = source.filename || source.source || "Documento";
+        const excerpt = source.excerpt
+          ? source.excerpt.slice(0, 120) + (source.excerpt.length > 120 ? "…" : "")
+          : "Sin extracto disponible.";
+        return (
+          <span key={`${title}-${index}`} className="source-chip">
+            <span className="source-chip-num">{index + 1}</span>
+            {title}
+            <span className="source-chip-tooltip">
+              <strong>{title}</strong>
+              {excerpt}
+            </span>
+          </span>
+        );
+      })}
     </div>
   );
 }
@@ -330,7 +419,7 @@ function MarkdownContent({ content = "", enabled = true }) {
 
 function AttachmentPreview({ item, onOpen }) {
   const isImage = String(item?.file_type || "").toLowerCase().startsWith("image/") || /^(png|jpg|jpeg|webp|gif)$/i.test(String(item?.file_type || ""));
-  const previewUrl = attachmentSourceUrl(item);
+  const previewUrl = String(item?.previewUrl || "").trim() || attachmentSourceUrl(item);
   const label = attachmentLabel(item);
   const handleOpen = () => {
     if (typeof onOpen === "function") {
@@ -364,6 +453,41 @@ function AttachmentPreview({ item, onOpen }) {
   );
 }
 
+function groupSessionsByDate(sessions) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const weekAgo = new Date(today);
+  weekAgo.setDate(weekAgo.getDate() - 7);
+
+  const groups = { "Hoy": [], "Ayer": [], "Esta semana": [], "Anteriores": [] };
+
+  sessions.forEach((session) => {
+    const date = new Date(session.created_at || session.updated_at || 0);
+    date.setHours(0, 0, 0, 0);
+    if (date >= today) {
+      groups["Hoy"].push(session);
+    } else if (date >= yesterday) {
+      groups["Ayer"].push(session);
+    } else if (date >= weekAgo) {
+      groups["Esta semana"].push(session);
+    } else {
+      groups["Anteriores"].push(session);
+    }
+  });
+
+  return Object.entries(groups).filter(([, items]) => items.length > 0);
+}
+
+function getInitials(name) {
+  if (!name) return "?";
+  const parts = String(name).trim().split(/\s+/);
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  return parts[0].slice(0, 2).toUpperCase();
+}
+
+
 function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [helpMenuOpen, setHelpMenuOpen] = useState(false);
@@ -371,6 +495,31 @@ function App() {
   const [apiBase, setApiBase] = useState(localStorage.getItem("apiBase") || DEFAULT_API_BASE);
   const [theme, setTheme] = useState(localStorage.getItem("theme") || "dark");
   const [markdownRendering, setMarkdownRendering] = useState(DEFAULT_MARKDOWN_RENDERING);
+  const [authToken, setAuthToken] = useState(localStorage.getItem(AUTH_TOKEN_KEY) || "");
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      const raw = localStorage.getItem(AUTH_USER_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (_) {
+      return null;
+    }
+  });
+  const [authMode, setAuthMode] = useState("login");
+  const [authReady, setAuthReady] = useState(false);
+  const [authSubmitting, setAuthSubmitting] = useState(false);
+  const [authMessage, setAuthMessage] = useState("");
+  const [authError, setAuthError] = useState("");
+  const [registerStep, setRegisterStep] = useState(1);
+  const [authForm, setAuthForm] = useState({
+    email: "",
+    password: "",
+    first_name: "",
+    last_name: "",
+    full_name: "",
+    account_type: "Estudiante",
+    knowledge_level: 1,
+    questionnaire_answers: ["", "", "", "", ""]
+  });
 
   const [providers, setProviders] = useState([]);
   const [modelsByProvider, setModelsByProvider] = useState({});
@@ -383,11 +532,12 @@ function App() {
 
   const [sessions, setSessions] = useState([]);
   const [sessionSearch, setSessionSearch] = useState("");
-  const [sessionId, setSessionId] = useState(DEFAULT_SESSION);
+  const [sessionId, setSessionId] = useState(null);
 
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const abortControllerRef = React.useRef(null);
   const [pendingAttachments, setPendingAttachments] = useState([]);
 
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -403,15 +553,24 @@ function App() {
 
   const [alert, setAlert] = useState(null);
 
+  const [renamingSessionId, setRenamingSessionId] = useState(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [confirmDeleteDocId, setConfirmDeleteDocId] = useState(null);
+  const [confirmClearDocs, setConfirmClearDocs] = useState(false);
+
   const globalFileInputRef = useRef(null);
   const sessionFileInputRef = useRef(null);
   const chatViewportRef = useRef(null);
   const shouldStickToBottomRef = useRef(true);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const settingsPanelRef = useRef(null);
+  const docsPanelRef = useRef(null);
+  const scrollRafRef = useRef(null);
 
   const modelsForCurrentProvider = useMemo(() => modelsByProvider[provider] || [], [modelsByProvider, provider]);
   const activeSession = useMemo(() => sessions.find((item) => item.session_id === sessionId) || null, [sessions, sessionId]);
   const hasMessages = messages.length > 0;
+  const sessionStorageKey = getSessionStorageKey(currentUser?.user_id);
 
   const scrollToConversationBottom = () => {
     if (!chatViewportRef.current) {
@@ -421,24 +580,71 @@ function App() {
   };
 
   const updateScrollState = () => {
-    const viewport = chatViewportRef.current;
-    if (!viewport) {
-      return;
+    if (scrollRafRef.current) return;
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = null;
+      const viewport = chatViewportRef.current;
+      if (!viewport) return;
+      const distanceToBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+      const isNearBottom = distanceToBottom < 44;
+      shouldStickToBottomRef.current = isNearBottom;
+      setShowScrollToBottom(!isNearBottom && hasMessages);
+    });
+  };
+
+  const persistAuthState = (token, user) => {
+    setAuthToken(token || "");
+    setCurrentUser(user || null);
+
+    if (token) {
+      localStorage.setItem(AUTH_TOKEN_KEY, token);
+    } else {
+      localStorage.removeItem(AUTH_TOKEN_KEY);
     }
 
-    const distanceToBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
-    const isNearBottom = distanceToBottom < 44;
-    shouldStickToBottomRef.current = isNearBottom;
-    setShowScrollToBottom(!isNearBottom && hasMessages);
+    if (user) {
+      localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+    } else {
+      localStorage.removeItem(AUTH_USER_KEY);
+    }
+  };
+
+  const authHeaders = (extraHeaders = {}) => {
+    const headers = { ...extraHeaders };
+    if (authToken) {
+      headers.Authorization = `Bearer ${authToken}`;
+    }
+    return headers;
   };
 
   const request = async (path, options = {}) => {
+    const response = await fetch(`${apiBase}${path}`, {
+      ...options,
+      headers: authHeaders(options.headers || {}),
+    });
+    if (!response.ok) {
+      let detail = `HTTP ${response.status}`;
+      try {
+        const data = await response.json();
+        detail = formatApiDetail(data, response.status);
+      } catch (_) {
+        // Preserve generic detail when body is not JSON.
+      }
+      throw new Error(detail);
+    }
+    if (response.status === 204) {
+      return null;
+    }
+    return response.json();
+  };
+
+  const requestWithoutAuth = async (path, options = {}) => {
     const response = await fetch(`${apiBase}${path}`, options);
     if (!response.ok) {
       let detail = `HTTP ${response.status}`;
       try {
         const data = await response.json();
-        detail = data.detail || JSON.stringify(data);
+        detail = formatApiDetail(data, response.status);
       } catch (_) {
         // Preserve generic detail when body is not JSON.
       }
@@ -481,12 +687,150 @@ function App() {
     setModel(data.model_name);
     setTemperature(data.temperature);
     setMaxTokens(data.max_tokens);
-    notify("Configuracion actualizada", "ok");
+    notify("Configuración actualizada", "ok");
   };
 
   const loadHealth = async () => {
     const data = await request("/health");
     setHealth(data);
+  };
+
+  const loadCurrentUser = async () => {
+    if (!authToken) {
+      setAuthReady(true);
+      setCurrentUser(null);
+      return null;
+    }
+
+    try {
+      const profile = await requestWithoutAuth("/auth/me", {
+        headers: authHeaders(),
+      });
+      persistAuthState(authToken, profile);
+      setAuthError("");
+      return profile;
+    } catch (error) {
+      persistAuthState("", null);
+      setAuthError("Sesion expirada. Inicia sesion de nuevo.");
+      return null;
+    } finally {
+      setAuthReady(true);
+    }
+  };
+
+  const logout = async () => {
+    persistAuthState("", null);
+    setMessages([]);
+    setSessions([]);
+    setSessionDocuments([]);
+    setPendingAttachments([]);
+    setAttachmentViewer(null);
+    setInput("");
+    setSessionId(null);
+    localStorage.removeItem(sessionStorageKey);
+    setAuthForm({ email: "", password: "", first_name: "", last_name: "", full_name: "", account_type: "Estudiante", knowledge_level: 1, questionnaire_answers: ["","","","",""] });
+    setAuthMode("login");
+    setRegisterStep(1);
+    setAuthMessage("Sesion cerrada");
+    setAuthError("");
+    setHelpMenuOpen(false);
+  };
+
+  const updateAuthField = (field, value) => {
+    setAuthForm((current) => ({ ...current, [field]: value }));
+  };
+
+  const updateQuestionnaireAnswer = (index, value) => {
+    setAuthForm((current) => {
+      const next = [...current.questionnaire_answers];
+      next[index] = value;
+      return { ...current, questionnaire_answers: next };
+    });
+  };
+
+  const validateRegisterStep = (step) => {
+    if (step === 1) {
+      if (!authForm.first_name || authForm.first_name.trim().length < 2) {
+        setAuthError("Ingresa tu nombre (mínimo 2 caracteres).");
+        return false;
+      }
+      if (!authForm.last_name || authForm.last_name.trim().length < 2) {
+        setAuthError("Ingresa tu apellido (mínimo 2 caracteres).");
+        return false;
+      }
+      if (!authForm.email || !authForm.email.includes("@")) {
+        setAuthError("Ingresa un correo electrónico válido.");
+        return false;
+      }
+      if (!authForm.password || authForm.password.length < 8) {
+        setAuthError("La contraseña debe tener al menos 8 caracteres.");
+        return false;
+      }
+    }
+    setAuthError(null);
+    return true;
+  };
+
+  const submitAuth = async () => {
+    setAuthSubmitting(true);
+    setAuthError("");
+    setAuthMessage("");
+
+    try {
+      if (authMode === "login") {
+        const data = await requestWithoutAuth("/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: authForm.email,
+            password: authForm.password,
+          }),
+        });
+
+        persistAuthState(data.access_token, data.user);
+        const nextKey = getSessionStorageKey(data.user.user_id);
+        const storedSessionId = localStorage.getItem(nextKey);
+        setSessionId(storedSessionId || null);
+        setAuthMessage(`Bienvenido, ${data.user.full_name}`);
+        await Promise.all([loadConfig(), loadHealth(), loadSessions()]);
+        if (storedSessionId) {
+          await loadHistory(storedSessionId);
+        }
+      } else {
+        const validationError = validateRegistrationForm(authForm);
+        if (validationError) {
+          throw new Error(validationError);
+        }
+
+        const questionnaireAnswers = AGILE_QUESTIONNAIRE.map((question, index) => ({
+          question_number: question.id,
+          answer: authForm.questionnaire_answers[index] || "d",
+        }));
+        const data = await requestWithoutAuth("/auth/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: authForm.email,
+            password: authForm.password,
+            full_name: `${authForm.first_name.trim()} ${authForm.last_name.trim()}`.trim() || authForm.full_name,
+            account_type: authForm.account_type,
+            knowledge_level: Number(authForm.knowledge_level),
+            questionnaire_answers: questionnaireAnswers,
+          }),
+        });
+
+        persistAuthState(data.access_token, data.user);
+        const nextKey = getSessionStorageKey(data.user.user_id);
+        localStorage.removeItem(nextKey);
+        setSessionId(null);
+        setAuthMessage(`Cuenta creada. Nivel estimado: ${data.user.agile_adoption_label}`);
+        await Promise.all([loadConfig(), loadHealth(), loadSessions()]);
+      }
+    } catch (error) {
+      setAuthError(error.message);
+    } finally {
+      setAuthSubmitting(false);
+    }
   };
 
   const loadSessions = async (query = "") => {
@@ -509,7 +853,9 @@ function App() {
     }));
     setMessages(mapped);
     setSessionId(id);
-    localStorage.setItem("sessionId", id);
+    if (currentUser?.user_id) {
+      localStorage.setItem(getSessionStorageKey(currentUser.user_id), id);
+    }
     setPendingAttachments([]);
     setAttachmentViewer(null);
     await loadSessionDocuments(id);
@@ -517,7 +863,9 @@ function App() {
 
   const createNewConversation = () => {
     setSessionId(null);
-    localStorage.removeItem("sessionId");
+    if (currentUser?.user_id) {
+      localStorage.removeItem(getSessionStorageKey(currentUser.user_id));
+    }
     setMessages([]);
     setSessionDocuments([]);
     setPendingAttachments([]);
@@ -526,12 +874,15 @@ function App() {
   };
 
   const ensureSessionContextId = () => {
+    if (!currentUser?.user_id) {
+      return null;
+    }
     if (sessionId) {
       return sessionId;
     }
     const generatedId = window.crypto?.randomUUID?.() || `session-${Date.now()}`;
     setSessionId(generatedId);
-    localStorage.setItem("sessionId", generatedId);
+    localStorage.setItem(getSessionStorageKey(currentUser.user_id), generatedId);
     return generatedId;
   };
 
@@ -541,6 +892,7 @@ function App() {
 
     const response = await fetch(`${apiBase}/documents/upload`, {
       method: "POST",
+      headers: authHeaders(),
       body: formData
     });
     if (!response.ok) {
@@ -562,6 +914,7 @@ function App() {
 
     const response = await fetch(`${apiBase}/documents/sessions/${encodeURIComponent(targetSessionId)}/upload`, {
       method: "POST",
+      headers: authHeaders(),
       body: formData
     });
     if (!response.ok) {
@@ -644,6 +997,10 @@ function App() {
     if (isUploadingSessionDocs) {
       return;
     }
+    if (!currentUser || !authToken) {
+      notify("Inicia sesion para adjuntar documentos de sesion", "error");
+      return;
+    }
     if (sessionFileInputRef.current) {
       sessionFileInputRef.current.click();
     }
@@ -655,7 +1012,18 @@ function App() {
       return;
     }
 
+    if (!currentUser || !authToken) {
+      notify("Inicia sesion para adjuntar documentos de sesion", "error");
+      event.target.value = "";
+      return;
+    }
+
     const targetSessionId = ensureSessionContextId();
+    if (!targetSessionId) {
+      notify("No se pudo crear una sesion de usuario", "error");
+      event.target.value = "";
+      return;
+    }
     const attachments = files.map((file) => ({
       filename: file.name,
       file_type: file.type || file.name.split(".").pop() || "document",
@@ -699,8 +1067,17 @@ function App() {
       return;
     }
 
+    if (!currentUser || !authToken) {
+      notify("Inicia sesion para pegar imagenes en una sesion", "error");
+      return;
+    }
+
     event.preventDefault();
     const targetSessionId = ensureSessionContextId();
+    if (!targetSessionId) {
+      notify("No se pudo crear una sesion de usuario", "error");
+      return;
+    }
     const attachments = imageFiles.map((file) => ({
       filename: file.name,
       file_type: file.type || "image/png",
@@ -756,15 +1133,18 @@ function App() {
     await Promise.all([loadDocuments(), loadHealth()]);
   };
 
-  const handleDeleteDocument = async (documentId) => {
+  const handleDeleteDocument = (documentId) => {
     if (!documentId) return;
-    const first = window.confirm("¿Eliminar este documento? Esta acción no se puede deshacer.");
-    if (!first) return;
-    const second = window.confirm("¿Estás seguro? Confirma nuevamente para eliminar.");
-    if (!second) return;
+    setConfirmDeleteDocId(documentId);
+  };
+
+  const confirmDeleteDocument = async () => {
+    const id = confirmDeleteDocId;
+    if (!id) return;
+    setConfirmDeleteDocId(null);
     try {
-      await request(`/documents/${encodeURIComponent(documentId)}`, { method: "DELETE" });
-      notify(`Documento ${documentId} eliminado`, "ok");
+      await request(`/documents/${encodeURIComponent(id)}`, { method: "DELETE" });
+      notify("Documento eliminado", "ok");
       await Promise.all([loadDocuments(), loadHealth()]);
     } catch (err) {
       notify(`Error al eliminar documento: ${err.message}`, "error");
@@ -809,43 +1189,41 @@ function App() {
     setHelpMenuOpen((prev) => !prev);
   };
 
-  const renameSession = async (session) => {
-    const currentLabel = session.title || getSessionLabel(session);
-    const nextTitle = window.prompt("Nuevo titulo para esta conversacion:", currentLabel);
-    if (nextTitle === null) {
-      return;
+  const startRename = (session) => {
+    setRenamingSessionId(session.session_id);
+    setRenameValue(session.title || getSessionLabel(session));
+  };
+
+  const commitRename = async () => {
+    const id = renamingSessionId;
+    if (!id) return;
+    setRenamingSessionId(null);
+    const cleaned = renameValue.trim();
+    if (!cleaned) return;
+    const session = sessions.find((s) => s.session_id === id);
+    if (!session || cleaned === session.title) return;
+    try {
+      await request(`/sessions/${encodeURIComponent(id)}/title`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: cleaned })
+      });
+      setSessions((current) => current.map((item) =>
+        item.session_id === id ? { ...item, title: cleaned } : item
+      ));
+      notify("Título actualizado", "ok");
+    } catch (err) {
+      notify(`Error al renombrar: ${err.message}`, "error");
     }
-
-    const cleanedTitle = nextTitle.trim();
-    if (!cleanedTitle) {
-      notify("El titulo no puede estar vacio", "error");
-      return;
-    }
-
-    if (cleanedTitle === session.title) {
-      return;
-    }
-
-    await request(`/sessions/${encodeURIComponent(session.session_id)}/title`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: cleanedTitle })
-    });
-
-    setSessions((current) => current.map((item) => (
-      item.session_id === session.session_id
-        ? { ...item, title: cleanedTitle }
-        : item
-    )));
-
-    notify("Titulo actualizado", "ok");
   };
 
   const streamChat = async (payload, assistantIndex) => {
+    abortControllerRef.current = new AbortController();
     const response = await fetch(`${apiBase}/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...payload, stream: true })
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ ...payload, stream: true }),
+      signal: abortControllerRef.current.signal
     });
 
     if (!response.ok || !response.body) {
@@ -896,7 +1274,9 @@ function App() {
             finalPayload = event;
             if (event.session_id) {
               setSessionId(event.session_id);
-              localStorage.setItem("sessionId", event.session_id);
+              if (currentUser?.user_id) {
+                localStorage.setItem(getSessionStorageKey(currentUser.user_id), event.session_id);
+              }
             }
           }
         } catch (_) {
@@ -922,9 +1302,20 @@ function App() {
     }
   };
 
+  const cancelStream = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+  };
+
   const sendMessage = async () => {
     const message = input.trim();
     if (!message || isSending) {
+      return;
+    }
+
+    if (!currentUser || !authToken) {
+      notify("Inicia sesion para usar el chat", "error");
       return;
     }
 
@@ -967,16 +1358,18 @@ function App() {
       await loadSessions(sessionSearch);
       setPendingAttachments([]);
     } catch (error) {
-      notify(`Error de chat: ${error.message}`, "error");
-      setMessages((current) => {
-        const next = [...current];
-        next[assistantIndex] = {
-          role: "assistant",
-          content: `No se pudo completar la respuesta en streaming: ${error.message}`,
-          sources: []
-        };
-        return next;
-      });
+      if (error.name !== "AbortError") {
+        notify(`Error de chat: ${error.message}`, "error");
+        setMessages((current) => {
+          const next = [...current];
+          next[assistantIndex] = {
+            role: "assistant",
+            content: `No se pudo completar la respuesta en streaming: ${error.message}`,
+            sources: []
+          };
+          return next;
+        });
+      }
     } finally {
       setIsSending(false);
     }
@@ -1005,22 +1398,43 @@ function App() {
   }, [provider, modelsForCurrentProvider, model]);
 
   useEffect(() => {
-    Promise.allSettled([loadConfig(), loadSessions(), loadHealth()]);
-  }, []);
-
-  useEffect(() => {
-    if (sessionId) {
-      loadHistory(sessionId).catch(() => {
-        setMessages([]);
-      });
+    Promise.allSettled([loadConfig(), loadHealth()]);
+    if (authToken) {
+      loadCurrentUser().catch(() => {});
+    } else {
+      setAuthReady(true);
     }
   }, []);
 
   useEffect(() => {
+    if (!currentUser) {
+      setSessions([]);
+      setMessages([]);
+      setSessionDocuments([]);
+      return;
+    }
+    loadSessions().catch(() => {});
+    const storedSessionId = localStorage.getItem(getSessionStorageKey(currentUser.user_id));
+    if (storedSessionId) {
+      loadHistory(storedSessionId).catch(() => {
+        setMessages([]);
+      });
+    } else {
+      setSessionId(null);
+      setMessages([]);
+      setSessionDocuments([]);
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (!currentUser || !sessionId) {
+      setSessionDocuments([]);
+      return;
+    }
     loadSessionDocuments(sessionId).catch(() => {
       setSessionDocuments([]);
     });
-  }, [sessionId]);
+  }, [sessionId, currentUser]);
 
   useEffect(() => {
     if (shouldStickToBottomRef.current) {
@@ -1034,97 +1448,421 @@ function App() {
     updateScrollState();
   }, [hasMessages]);
 
+  useEffect(() => {
+    if (!settingsOpen || !settingsPanelRef.current) return;
+    const panel = settingsPanelRef.current;
+    const getFocusable = () => Array.from(panel.querySelectorAll(
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    ));
+    const focusable = getFocusable();
+    if (focusable.length) focusable[0].focus();
+    const onKey = (e) => {
+      if (e.key === "Escape") { setSettingsOpen(false); return; }
+      if (e.key !== "Tab") return;
+      const items = getFocusable();
+      if (!items.length) return;
+      if (e.shiftKey) {
+        if (document.activeElement === items[0]) { e.preventDefault(); items[items.length - 1].focus(); }
+      } else {
+        if (document.activeElement === items[items.length - 1]) { e.preventDefault(); items[0].focus(); }
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [settingsOpen]);
+
+  useEffect(() => {
+    if (!docsOpen || !docsPanelRef.current) return;
+    const panel = docsPanelRef.current;
+    const getFocusable = () => Array.from(panel.querySelectorAll(
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    ));
+    const focusable = getFocusable();
+    if (focusable.length) focusable[0].focus();
+    const onKey = (e) => {
+      if (e.key === "Escape") { setDocsOpen(false); return; }
+      if (e.key !== "Tab") return;
+      const items = getFocusable();
+      if (!items.length) return;
+      if (e.shiftKey) {
+        if (document.activeElement === items[0]) { e.preventDefault(); items[items.length - 1].focus(); }
+      } else {
+        if (document.activeElement === items[items.length - 1]) { e.preventDefault(); items[0].focus(); }
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [docsOpen]);
+
   return (
     <div className="app-shell">
       <aside className={`history-sidebar ${sidebarOpen ? "" : "collapsed"}`}>
-        <div className="sidebar-top">
-          <div className="sidebar-header-row">
-            <button className="sidebar-toggle" onClick={() => { setSidebarOpen((prev) => !prev); setHelpMenuOpen(false); }}>
-              {sidebarOpen ? "☰" : "☷"}
-            </button>
-            {sidebarOpen && <h1>Menu</h1>}
-          </div>
-          {sidebarOpen && <button className="new-chat-btn" onClick={createNewConversation}>Nueva conversacion</button>}
+        <div className="sidebar-header">
+          {sidebarOpen
+            ? <span className="sidebar-logo">AGILE</span>
+            : <button className="sidebar-toggle" onClick={() => setSidebarOpen(true)} title="Abrir menú" aria-label="Abrir menú">☰</button>
+          }
+          {sidebarOpen && (
+            <>
+              <button className="new-chat-btn" onClick={createNewConversation} title="Nueva conversación" aria-label="Nueva conversación">+</button>
+            </>
+          )}
         </div>
 
-        { /* Search input removed — historial search disabled in sidebar */ }
+        {sidebarOpen && (
+          <button className="sidebar-toggle sidebar-close" style={{ position: "absolute", top: "12px", right: "50px" }}
+            onClick={() => { setSidebarOpen(false); setHelpMenuOpen(false); }} title="Cerrar menú" aria-label="Cerrar menú">✕</button>
+        )}
 
         <div className="session-list">
-          {sidebarOpen && <div className="section-title">Conversaciones</div>}
-          {sessions.map((item) => (
-            <div key={item.session_id} className={`session-item ${item.session_id === sessionId ? "active" : ""}`}>
-              {sidebarOpen ? (
-                <>
-                  <button className="session-select" onClick={() => loadHistory(item.session_id)}>
-                    <strong>{truncateText(getSessionLabel(item), 32)}</strong>
-                  </button>
-                  <button className="session-rename" onClick={() => renameSession(item)} title="Renombrar charla">✎</button>
-                  <button className="session-delete" onClick={() => deleteSession(item.session_id)}>x</button>
-                </>
-              ) : (
-                <button className="session-dot" onClick={() => loadHistory(item.session_id)} title={getSessionLabel(item)}>●</button>
-              )}
-            </div>
-          ))}
+          {sidebarOpen
+            ? groupSessionsByDate(sessions).map(([label, items]) => (
+                <div key={label} className="session-group">
+                  <div className="session-group-label">{label}</div>
+                  {items.map((item) => (
+                    <div
+                      key={item.session_id}
+                      className={`session-item ${item.session_id === sessionId ? "active" : ""}`}
+                    >
+                      {renamingSessionId === item.session_id ? (
+                        <input
+                          className="session-rename-input"
+                          value={renameValue}
+                          autoFocus
+                          aria-label="Nuevo nombre de conversación"
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter") commitRename(); if (e.key === "Escape") setRenamingSessionId(null); }}
+                          onBlur={commitRename}
+                        />
+                      ) : (
+                        <button
+                          className="session-select"
+                          onClick={() => loadHistory(item.session_id)}
+                          title={getSessionLabel(item)}
+                          aria-current={item.session_id === sessionId ? "true" : undefined}
+                        >
+                          {truncateText(getSessionLabel(item), 30)}
+                        </button>
+                      )}
+                      <span className="session-item-actions">
+                        <button className="session-rename" onClick={() => startRename(item)} title="Renombrar" aria-label={`Renombrar: ${getSessionLabel(item)}`}>✎</button>
+                        <button className="session-delete" onClick={() => deleteSession(item.session_id)} title="Eliminar" aria-label={`Eliminar: ${getSessionLabel(item)}`}>×</button>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ))
+            : sessions.map((item) => (
+                <div key={item.session_id}
+                  className={`session-item ${item.session_id === sessionId ? "active" : ""}`}
+                  style={{ padding: "8px", display: "flex", justifyContent: "center" }}
+                >
+                  <button className="session-dot" onClick={() => loadHistory(item.session_id)} title={getSessionLabel(item)} aria-label={getSessionLabel(item)}>●</button>
+                </div>
+              ))
+          }
         </div>
 
         <div className="sidebar-footer">
-          <div className="sidebar-tools">
-            <button className="sidebar-menu-trigger" onClick={toggleHelpMenu} title="Configuracion y ayuda">
-              ⚙
-            </button>
-            {sidebarOpen && <span>Configuracion</span>}
-          </div>
+          {sidebarOpen && (
+            <div className="sidebar-tools">
+              <button className="sidebar-menu-trigger" onClick={toggleHelpMenu} title="Configuración y ayuda" aria-label="Configuración y ayuda" aria-expanded={helpMenuOpen}>⚙</button>
+              <span className="sidebar-tools-label">Configuración</span>
+            </div>
+          )}
 
           {helpMenuOpen && (
             <div className="sidebar-help-menu">
-              <button onClick={() => { setSettingsOpen(true); setHelpMenuOpen(false); }}>Configuracion avanzada</button>
-              <button onClick={() => { setDocsOpen(true); loadDocuments().catch(() => {}); setHelpMenuOpen(false); }}>Gestion de documentos</button>
+              <button onClick={() => { setSettingsOpen(true); setHelpMenuOpen(false); }}>Configuración avanzada</button>
+              <button onClick={() => { setDocsOpen(true); loadDocuments().catch(() => {}); setHelpMenuOpen(false); }}>Gestión de documentos</button>
               <button onClick={() => { setTheme(theme === "dark" ? "light" : "dark"); setHelpMenuOpen(false); }}>
                 Tema: {theme === "dark" ? "Claro" : "Oscuro"}
               </button>
             </div>
           )}
 
-          {sidebarOpen && (
-            <>
-              <p>Estado: {health.status}</p>
-              <p>RAG: {health.rag_status}</p>
-            </>
+          {sidebarOpen && currentUser && (
+            <div className="user-card">
+              <div className="avatar">{getInitials(currentUser.full_name)}</div>
+              <div className="user-info">
+                <div className="user-name">{currentUser.full_name}</div>
+                <div className="user-role">{currentUser.agile_adoption_label || "Agile learner"}</div>
+              </div>
+              <button className="sidebar-logout-btn" onClick={logout} title="Cerrar sesión" aria-label="Cerrar sesión">↪</button>
+            </div>
+          )}
+
+          {sidebarOpen && !currentUser && (
+            <div className="user-card empty">
+              <div className="avatar">?</div>
+              <div className="user-info">
+                <div className="user-name">Sin sesión</div>
+              </div>
+            </div>
           )}
         </div>
       </aside>
 
       {!sidebarOpen && (
-        <button className="floating-new-chat" onClick={createNewConversation} title="Nueva charla">＋</button>
+        <button className="floating-new-chat" onClick={createNewConversation} title="Nueva conversación" aria-label="Nueva conversación">＋</button>
       )}
 
       <main className="chat-main">
-        <div className="app-brand">Chatbot Agil</div>
+        <div className="app-brand" style={{ display: "none" }}></div>
+
+        {currentUser && (
+          <div className="chat-header">
+            <span className="chat-session-title">
+              {activeSession ? getSessionLabel(activeSession) : "Agile Assistant"}
+            </span>
+          </div>
+        )}
+
+        {authReady && !currentUser && (
+          <section className="auth-gate">
+            <div className="auth-card">
+              <div className="auth-brand">
+                <div className="auth-logo-text">AGILE ASSISTANT</div>
+                <div className="auth-tagline">Tu tutor de metodologías ágiles</div>
+              </div>
+
+              <div className="tab-switcher">
+                <button
+                  className={`tab-btn ${authMode === "login" ? "active" : ""}`}
+                  onClick={() => { setAuthMode("login"); setRegisterStep(1); setAuthError(null); setAuthMessage(""); setAuthForm({ email: "", password: "", first_name: "", last_name: "", full_name: "", account_type: "Estudiante", knowledge_level: 1, questionnaire_answers: ["","","","",""] }); }}
+                >Iniciar sesión</button>
+                <button
+                  className={`tab-btn ${authMode === "register" ? "active" : ""}`}
+                  onClick={() => { setAuthMode("register"); setRegisterStep(1); setAuthError(null); setAuthMessage(""); setAuthForm({ email: "", password: "", first_name: "", last_name: "", full_name: "", account_type: "Estudiante", knowledge_level: 1, questionnaire_answers: ["","","","",""] }); }}
+                >Registrarse</button>
+              </div>
+
+              {authError && <p className="auth-status error">{authError}</p>}
+              {authMessage && <p className="auth-status ok">{authMessage}</p>}
+
+              {authMode === "login" && (
+                <div className="field-group">
+                  <div className="field">
+                    <label htmlFor="login-email">Correo electrónico</label>
+                    <input id="login-email" type="email" value={authForm.email} onChange={(e) => updateAuthField("email", e.target.value)} placeholder="usuario@correo.com" />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="login-password">Contraseña</label>
+                    <input id="login-password" type="password" value={authForm.password} onChange={(e) => updateAuthField("password", e.target.value)} placeholder="••••••••" />
+                  </div>
+                </div>
+              )}
+
+              {authMode === "register" && (
+                <>
+                  <div className="progress-block">
+                    <div className="progress-header">
+                      <span className="progress-label">
+                        {registerStep === 1 && "Tu cuenta"}
+                        {registerStep === 2 && "Preguntas 1 – 3"}
+                        {registerStep === 3 && "Preguntas 4 – 5"}
+                        {registerStep === 4 && "Nivel general"}
+                      </span>
+                      <span className="progress-count">{registerStep} / 4</span>
+                    </div>
+                    <div
+                      className="progress-track"
+                      role="progressbar"
+                      aria-valuenow={registerStep}
+                      aria-valuemin={1}
+                      aria-valuemax={4}
+                      aria-label={`Paso ${registerStep} de 4`}
+                    >
+                      <div className="progress-fill" style={{ width: `${(registerStep / 4) * 100}%` }}></div>
+                    </div>
+                  </div>
+
+                  <div className="step-dots">
+                    {[1, 2, 3, 4].map((n) => (
+                      <div key={n} className={`step-dot ${n === registerStep ? "active" : n < registerStep ? "done" : ""}`} />
+                    ))}
+                  </div>
+
+                  {registerStep === 1 && (
+                    <div className="field-group">
+                      <div className="field-row">
+                        <div className="field">
+                          <label htmlFor="reg-first-name">Nombre</label>
+                          <input id="reg-first-name" type="text" value={authForm.first_name} onChange={(e) => updateAuthField("first_name", e.target.value)} placeholder="Ej. Andy" />
+                        </div>
+                        <div className="field">
+                          <label htmlFor="reg-last-name">Apellido</label>
+                          <input id="reg-last-name" type="text" value={authForm.last_name} onChange={(e) => updateAuthField("last_name", e.target.value)} placeholder="Ej. Macas" />
+                        </div>
+                      </div>
+                      <div className="field">
+                        <label htmlFor="reg-email">Correo electrónico</label>
+                        <input id="reg-email" type="email" value={authForm.email} onChange={(e) => updateAuthField("email", e.target.value)} placeholder="usuario@correo.com" />
+                      </div>
+                      <div className="field">
+                        <label htmlFor="reg-password">Contraseña</label>
+                        <input id="reg-password" type="password" value={authForm.password} onChange={(e) => updateAuthField("password", e.target.value)} placeholder="Mínimo 8 caracteres" />
+                      </div>
+                    </div>
+                  )}
+
+                  {registerStep === 2 && (
+                    <div className="questionnaire-block">
+                      {AGILE_QUESTIONNAIRE.slice(0, 3).map((question, index) => (
+                        <div key={question.id} className="question-item">
+                          <div className="q-number">Pregunta {question.id}</div>
+                          <p className="question-text" id={`q2-${question.id}-label`}>{question.statement}</p>
+                          <div className="question-options" role="radiogroup" aria-labelledby={`q2-${question.id}-label`}>
+                            {question.options.map((option) => (
+                              <button
+                                key={option.value}
+                                type="button"
+                                className={`q-option ${authForm.questionnaire_answers[index] === option.value ? "selected" : ""}`}
+                                aria-pressed={authForm.questionnaire_answers[index] === option.value}
+                                onClick={() => updateQuestionnaireAnswer(index, option.value)}
+                              >
+                                <div className="q-radio" aria-hidden="true" />
+                                {option.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {registerStep === 3 && (
+                    <div className="questionnaire-block">
+                      {AGILE_QUESTIONNAIRE.slice(3, 5).map((question, index) => (
+                        <div key={question.id} className="question-item">
+                          <div className="q-number">Pregunta {question.id}</div>
+                          <p className="question-text" id={`q3-${question.id}-label`}>{question.statement}</p>
+                          <div className="question-options" role="radiogroup" aria-labelledby={`q3-${question.id}-label`}>
+                            {question.options.map((option) => (
+                              <button
+                                key={option.value}
+                                type="button"
+                                className={`q-option ${authForm.questionnaire_answers[index + 3] === option.value ? "selected" : ""}`}
+                                aria-pressed={authForm.questionnaire_answers[index + 3] === option.value}
+                                onClick={() => updateQuestionnaireAnswer(index + 3, option.value)}
+                              >
+                                <div className="q-radio" aria-hidden="true" />
+                                {option.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {registerStep === 4 && (
+                    <div className="level-selector" role="radiogroup" aria-label="Nivel de conocimiento ágil">
+                      {[
+                        { level: 1, text: "Principiante — No conozco las metodologías ágiles" },
+                        { level: 2, text: "Básico — Conozco los conceptos fundamentales" },
+                        { level: 3, text: "Intermedio — Aplico frameworks en proyectos reales" },
+                        { level: 4, text: "Avanzado — Lidero equipos ágiles o soy coach certificado" },
+                      ].map(({ level, text }) => (
+                        <button
+                          key={level}
+                          type="button"
+                          className={`level-card ${authForm.knowledge_level === level ? "selected" : ""}`}
+                          aria-pressed={authForm.knowledge_level === level}
+                          onClick={() => updateAuthField("knowledge_level", level)}
+                        >
+                          <div className="level-num" aria-hidden="true">{level}</div>
+                          <div className="level-text">{text}</div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {authMode === "login" ? (
+                <button className="cta-btn" onClick={submitAuth} disabled={authSubmitting}>
+                  {authSubmitting ? "Procesando..." : "Entrar"}
+                </button>
+              ) : registerStep < 4 ? (
+                <button className="cta-btn" onClick={() => { if (validateRegisterStep(registerStep)) setRegisterStep((s) => s + 1); }}>
+                  Continuar →
+                </button>
+              ) : (
+                <button className="cta-btn" onClick={submitAuth} disabled={authSubmitting}>
+                  {authSubmitting ? "Procesando..." : "✓ Crear mi cuenta"}
+                </button>
+              )}
+
+              {authMode === "register" && registerStep > 1 && (
+                <button className="cta-secondary" onClick={() => { setRegisterStep((s) => s - 1); setAuthError(null); }}>
+                  ← Atrás
+                </button>
+              )}
+              {authMode === "register" && registerStep === 1 && (
+                <button className="cta-secondary" onClick={() => setAuthMode("login")}>
+                  Ya tengo cuenta
+                </button>
+              )}
+            </div>
+          </section>
+        )}
 
         <section ref={chatViewportRef} className="chat-viewport" onScroll={updateScrollState}>
-          {!hasMessages && (
+          {currentUser && !hasMessages && (
             <div className="welcome-panel">
-              <div className="welcome-kicker">Hola</div>
+              <div className="welcome-kicker">Hola, {currentUser.full_name}</div>
               <h2>¿Cómo puedo ayudarte hoy?</h2>
+              <p>Tu nivel detectado en Agilidad es {currentUser.agile_adoption_label}.</p>
             </div>
           )}
 
-          {hasMessages && (
+          {currentUser && hasMessages && (
             <div className="conversation-headline">
-              {activeSession ? getSessionLabel(activeSession) : "Nueva conversacion"}
+              {activeSession ? getSessionLabel(activeSession) : "Nueva conversación"}
             </div>
           )}
 
           <div className="messages-stack">
             {messages.map((item, index) => (
               <article key={`${item.role}-${index}`} className={`bubble ${item.role}`}>
-                {String(item.role || "").toLowerCase() !== "user" && String(item.content || "").trim().length > 0
-                  ? <MarkdownContent content={item.content} enabled={markdownRendering} />
-                  : String(item.role || "").toLowerCase() === "user"
-                    ? <p>{item.content}</p>
-                    : null}
-                {Array.isArray(item.attachments) && item.attachments.length > 0 && (
+                {String(item.role || "").toLowerCase() === "user"
+                  ? <p>{item.content}</p>
+                  : (
+                    <div className="assistant-row">
+                      <div className="bot-avatar" aria-hidden="true">✦</div>
+                      <div className="bubble-text">
+                        {String(item.content || "").trim().length > 0
+                          ? <MarkdownContent content={item.content} enabled={markdownRendering} />
+                          : item.role === "assistant" && isSending && index === messages.length - 1
+                            ? (
+                                <div className="streaming-row">
+                                  <div className="typing-indicator">
+                                    <div className="typing-dot"></div>
+                                    <div className="typing-dot"></div>
+                                    <div className="typing-dot"></div>
+                                  </div>
+                                  <button className="cancel-stream-btn" onClick={cancelStream}>✕ Cancelar</button>
+                                </div>
+                              )
+                            : null}
+                        {Array.isArray(item.attachments) && item.attachments.length > 0 && (
+                          <div className="message-attachments">
+                            {item.attachments.map((attachment, attachmentIndex) => (
+                              <AttachmentPreview
+                                key={`${attachment.filename || attachmentIndex}-${attachmentIndex}`}
+                                item={attachment}
+                                onOpen={openAttachmentViewer}
+                              />
+                            ))}
+                          </div>
+                        )}
+                        <SourceReferences sources={item.sources} />
+                      </div>
+                    </div>
+                  )
+                }
+                {String(item.role || "").toLowerCase() === "user" && Array.isArray(item.attachments) && item.attachments.length > 0 && (
                   <div className="message-attachments">
                     {item.attachments.map((attachment, attachmentIndex) => (
                       <AttachmentPreview
@@ -1135,13 +1873,18 @@ function App() {
                     ))}
                   </div>
                 )}
-                <SourceReferences sources={item.sources} />
+                {String(item.role || "").toLowerCase() === "user" && <SourceReferences sources={item.sources} />}
               </article>
             ))}
           </div>
         </section>
 
         <footer className="chat-input-area">
+          {!currentUser && (
+            <div className="auth-inline-banner">
+              Inicia sesión para usar el chat y conservar tu historial personal.
+            </div>
+          )}
           <div className="input-shell">
             <input
               ref={sessionFileInputRef}
@@ -1151,20 +1894,12 @@ function App() {
               onChange={handleSessionUpload}
               style={{ display: "none" }}
             />
-            <button
-              className="input-icon"
-              onClick={handleSessionUploadClick}
-              title="Adjuntar a esta sesion"
-              disabled={isUploadingSessionDocs}
-            >
-              {isUploadingSessionDocs ? "…" : "＋"}
-            </button>
 
             <textarea
               rows={1}
               value={input}
               onChange={(event) => setInput(event.target.value)}
-              placeholder="Pregunta a Agile Assistant"
+              placeholder={currentUser ? "Pregunta sobre metodologías ágiles…" : "Inicia sesión para usar el chat"}
               onPaste={handleSessionPaste}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
@@ -1189,39 +1924,33 @@ function App() {
                       <span className="attachment-name">{attachmentLabel(item)}</span>
                       <span className="attachment-kind">{attachmentKindLabel(item)}</span>
                     </span>
-                    {image && attachmentSourceUrl(item) && (
-                      <button
-                        type="button"
-                        className="attachment-thumb-button"
-                        onClick={() => openAttachmentViewer(item)}
-                        title="Ver imagen"
-                      >
-                        <img className="attachment-thumb" src={attachmentSourceUrl(item)} alt={attachmentLabel(item)} />
+                    {image && (item.previewUrl || attachmentSourceUrl(item)) && (
+                      <button type="button" className="attachment-thumb-button" onClick={() => openAttachmentViewer(item)} title="Ver imagen">
+                        <img className="attachment-thumb" src={item.previewUrl || attachmentSourceUrl(item)} alt={attachmentLabel(item)} />
                       </button>
                     )}
                     {!image && <span className="attachment-icon" aria-hidden="true">📎</span>}
-                    <button
-                      type="button"
-                      className="attachment-remove-btn"
-                      onClick={() => removePendingAttachment(index)}
-                      title="Quitar adjunto"
-                      aria-label={`Quitar ${attachmentLabel(item)}`}
-                    >
-                      ×
-                    </button>
+                    <button type="button" className="attachment-remove-btn" onClick={() => removePendingAttachment(index)} title="Quitar adjunto" aria-label={`Quitar ${attachmentLabel(item)}`}>×</button>
                   </div>
                 );
               })}
             </div>
 
             <div className="input-toolbar">
-              <select value={provider} onChange={(event) => setProvider(event.target.value)}>
-                {(providers || []).map((item) => <option key={item} value={item}>{item}</option>)}
-              </select>
-              <select value={model} onChange={(event) => setModel(event.target.value)}>
-                {(modelsForCurrentProvider || []).map((item) => <option key={item} value={item}>{item}</option>)}
-              </select>
-              <button className="primary-btn" onClick={sendMessage} disabled={isSending}>{isSending ? "Pensando..." : "Enviar"}</button>
+              <div className="toolbar-left">
+                <button className="toolbar-chip" onClick={handleSessionUploadClick} disabled={isUploadingSessionDocs} title="Adjuntar archivo">
+                  📎 Adjuntar
+                </button>
+                <select className="toolbar-model-select" value={provider} onChange={(e) => setProvider(e.target.value)}>
+                  {(providers || []).map((item) => <option key={item} value={item}>{item}</option>)}
+                </select>
+                <select className="toolbar-model-select" value={model} onChange={(e) => setModel(e.target.value)}>
+                  {(modelsForCurrentProvider || []).map((item) => <option key={item} value={item}>{item}</option>)}
+                </select>
+              </div>
+              <button className="send-btn" onClick={sendMessage} disabled={isSending} title={isSending ? "Generando..." : "Enviar"} aria-label={isSending ? "Generando respuesta" : "Enviar mensaje"}>
+                {isSending ? "…" : "↑"}
+              </button>
             </div>
           </div>
         </footer>
@@ -1233,23 +1962,31 @@ function App() {
         )}
       </main>
 
-      {alert && <div className={`alert ${alert.type}`}>{alert.message}</div>}
+      {alert && <div className={`alert ${alert.type}`} role="alert" aria-live="assertive">{alert.message}</div>}
 
       {settingsOpen && (
         <div className="overlay" onClick={() => setSettingsOpen(false)}>
-          <section className="panel" onClick={(event) => event.stopPropagation()}>
-            <h3>Configuracion avanzada</h3>
-            <label>API Base URL</label>
-            <input value={apiBase} onChange={(event) => setApiBase(event.target.value)} />
+          <section
+            ref={settingsPanelRef}
+            className="panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="settings-dialog-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3 id="settings-dialog-title">Configuración avanzada</h3>
+            <label htmlFor="settings-api-base">API Base URL</label>
+            <input id="settings-api-base" value={apiBase} onChange={(event) => setApiBase(event.target.value)} />
 
-            <label>Temperature: {temperature}</label>
-            <input type="range" min="0" max="1" step="0.1" value={temperature} onChange={(event) => setTemperature(Number(event.target.value))} />
+            <label htmlFor="settings-temperature">Temperature: {temperature}</label>
+            <input id="settings-temperature" type="range" min="0" max="1" step="0.1" value={temperature} onChange={(event) => setTemperature(Number(event.target.value))} />
 
-            <label>Max tokens</label>
-            <input type="number" min="1" value={maxTokens} onChange={(event) => setMaxTokens(Number(event.target.value))} />
+            <label htmlFor="settings-max-tokens">Max tokens</label>
+            <input id="settings-max-tokens" type="number" min="1" value={maxTokens} onChange={(event) => setMaxTokens(Number(event.target.value))} />
 
             <label className="checkbox-row">
               <input
+                id="settings-markdown"
                 type="checkbox"
                 checked={markdownRendering}
                 onChange={(event) => setMarkdownRendering(event.target.checked)}
@@ -1267,8 +2004,15 @@ function App() {
 
       {docsOpen && (
         <div className="overlay" onClick={() => setDocsOpen(false)}>
-          <section className="panel" onClick={(event) => event.stopPropagation()}>
-            <h3>Gestion de documentos</h3>
+          <section
+            ref={docsPanelRef}
+            className="panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="docs-dialog-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3 id="docs-dialog-title">Gestión de documentos</h3>
             <p>{documentsSummary}</p>
             <input
               ref={globalFileInputRef}
@@ -1294,6 +2038,7 @@ function App() {
               ) : (
                 documents.map((item, index) => {
                   const documentId = item.file_hash || item.document_id || item.id || "Sin ID";
+                  const isPendingDelete = confirmDeleteDocId === documentId;
                   return (
                     <article key={`${item.filename}-${index}`} className="doc-entry">
                       <div className="doc-entry-head">
@@ -1303,7 +2048,15 @@ function App() {
                       <p><span className="doc-label">Origen:</span> {item.source || "Sin origen"}</p>
                       <p><span className="doc-label">ID:</span> <code>{documentId}</code></p>
                       <div className="doc-actions">
-                        <button className="danger-btn" onClick={() => handleDeleteDocument(documentId)}>Eliminar</button>
+                        {isPendingDelete ? (
+                          <div className="confirm-delete-row" role="group" aria-label="Confirmar eliminación">
+                            <span>¿Eliminar este documento?</span>
+                            <button className="danger-btn" onClick={confirmDeleteDocument}>Confirmar</button>
+                            <button className="ghost-btn" onClick={() => setConfirmDeleteDocId(null)}>Cancelar</button>
+                          </div>
+                        ) : (
+                          <button className="danger-btn" onClick={() => handleDeleteDocument(documentId)} aria-label={`Eliminar ${item.filename || "documento"}`}>Eliminar</button>
+                        )}
                       </div>
                     </article>
                   );
@@ -1311,11 +2064,17 @@ function App() {
               )}
             </div>
 
-            {/* Eliminacion por ID eliminada; ahora cada documento tiene su boton de borrar con doble confirmacion */}
-
             <div className="panel-actions">
               <button className="ghost-btn" onClick={() => setDocsOpen(false)}>Cerrar</button>
-              <button className="danger-btn" onClick={clearDocuments}>Vaciar todo</button>
+              {confirmClearDocs ? (
+                <div className="confirm-delete-row" role="group" aria-label="Confirmar vaciado">
+                  <span>¿Eliminar todos?</span>
+                  <button className="danger-btn" onClick={() => { setConfirmClearDocs(false); clearDocuments(); }}>Confirmar</button>
+                  <button className="ghost-btn" onClick={() => setConfirmClearDocs(false)}>Cancelar</button>
+                </div>
+              ) : (
+                <button className="danger-btn" onClick={() => setConfirmClearDocs(true)}>Vaciar todo</button>
+              )}
             </div>
           </section>
         </div>
@@ -1332,6 +2091,12 @@ function App() {
           </section>
         </div>
       )}
+
+      <div className="sr-only" role="status" aria-live="polite" aria-atomic="false">
+        {messages.length > 0 && messages[messages.length - 1].role === "assistant"
+          ? messages[messages.length - 1].content
+          : ""}
+      </div>
     </div>
   );
 }
