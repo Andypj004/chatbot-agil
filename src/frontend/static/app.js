@@ -274,7 +274,7 @@ function truncateText(text, max = MAX_SESSION_LABEL_LENGTH) {
 
 function getSessionLabel(session) {
   if (!session) {
-    return "Nueva conversacion";
+    return "Nueva conversación";
   }
 
   const title = truncateText(session.title || "");
@@ -352,12 +352,13 @@ function validateRegistrationForm(authForm) {
     return "La contraseña debe tener al menos 8 caracteres.";
   }
 
-  if (!String(authForm.full_name || "").trim()) {
-    return "El nombre y apellido es obligatorio.";
+  const firstName = String(authForm.first_name || "").trim();
+  const lastName = String(authForm.last_name || "").trim();
+  if (!firstName || !lastName) {
+    return "El nombre y el apellido son obligatorios.";
   }
-
-  if (String(authForm.full_name || "").trim().length < 3) {
-    return "El nombre y apellido debe tener al menos 3 caracteres.";
+  if (firstName.length < 2 || lastName.length < 2) {
+    return "Nombre y apellido deben tener al menos 2 caracteres cada uno.";
   }
 
   return null;
@@ -418,7 +419,7 @@ function MarkdownContent({ content = "", enabled = true }) {
 
 function AttachmentPreview({ item, onOpen }) {
   const isImage = String(item?.file_type || "").toLowerCase().startsWith("image/") || /^(png|jpg|jpeg|webp|gif)$/i.test(String(item?.file_type || ""));
-  const previewUrl = attachmentSourceUrl(item);
+  const previewUrl = String(item?.previewUrl || "").trim() || attachmentSourceUrl(item);
   const label = attachmentLabel(item);
   const handleOpen = () => {
     if (typeof onOpen === "function") {
@@ -479,6 +480,14 @@ function groupSessionsByDate(sessions) {
   return Object.entries(groups).filter(([, items]) => items.length > 0);
 }
 
+function getInitials(name) {
+  if (!name) return "?";
+  const parts = String(name).trim().split(/\s+/);
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  return parts[0].slice(0, 2).toUpperCase();
+}
+
+
 function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [helpMenuOpen, setHelpMenuOpen] = useState(false);
@@ -504,6 +513,8 @@ function App() {
   const [authForm, setAuthForm] = useState({
     email: "",
     password: "",
+    first_name: "",
+    last_name: "",
     full_name: "",
     account_type: "Estudiante",
     knowledge_level: 1,
@@ -542,11 +553,19 @@ function App() {
 
   const [alert, setAlert] = useState(null);
 
+  const [renamingSessionId, setRenamingSessionId] = useState(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [confirmDeleteDocId, setConfirmDeleteDocId] = useState(null);
+  const [confirmClearDocs, setConfirmClearDocs] = useState(false);
+
   const globalFileInputRef = useRef(null);
   const sessionFileInputRef = useRef(null);
   const chatViewportRef = useRef(null);
   const shouldStickToBottomRef = useRef(true);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const settingsPanelRef = useRef(null);
+  const docsPanelRef = useRef(null);
+  const scrollRafRef = useRef(null);
 
   const modelsForCurrentProvider = useMemo(() => modelsByProvider[provider] || [], [modelsByProvider, provider]);
   const activeSession = useMemo(() => sessions.find((item) => item.session_id === sessionId) || null, [sessions, sessionId]);
@@ -561,15 +580,16 @@ function App() {
   };
 
   const updateScrollState = () => {
-    const viewport = chatViewportRef.current;
-    if (!viewport) {
-      return;
-    }
-
-    const distanceToBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
-    const isNearBottom = distanceToBottom < 44;
-    shouldStickToBottomRef.current = isNearBottom;
-    setShowScrollToBottom(!isNearBottom && hasMessages);
+    if (scrollRafRef.current) return;
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = null;
+      const viewport = chatViewportRef.current;
+      if (!viewport) return;
+      const distanceToBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+      const isNearBottom = distanceToBottom < 44;
+      shouldStickToBottomRef.current = isNearBottom;
+      setShowScrollToBottom(!isNearBottom && hasMessages);
+    });
   };
 
   const persistAuthState = (token, user) => {
@@ -667,7 +687,7 @@ function App() {
     setModel(data.model_name);
     setTemperature(data.temperature);
     setMaxTokens(data.max_tokens);
-    notify("Configuracion actualizada", "ok");
+    notify("Configuración actualizada", "ok");
   };
 
   const loadHealth = async () => {
@@ -708,6 +728,9 @@ function App() {
     setInput("");
     setSessionId(null);
     localStorage.removeItem(sessionStorageKey);
+    setAuthForm({ email: "", password: "", first_name: "", last_name: "", full_name: "", account_type: "Estudiante", knowledge_level: 1, questionnaire_answers: ["","","","",""] });
+    setAuthMode("login");
+    setRegisterStep(1);
     setAuthMessage("Sesion cerrada");
     setAuthError("");
     setHelpMenuOpen(false);
@@ -727,8 +750,12 @@ function App() {
 
   const validateRegisterStep = (step) => {
     if (step === 1) {
-      if (!authForm.full_name || authForm.full_name.trim().length < 3) {
-        setAuthError("El nombre y apellido debe tener al menos 3 caracteres.");
+      if (!authForm.first_name || authForm.first_name.trim().length < 2) {
+        setAuthError("Ingresa tu nombre (mínimo 2 caracteres).");
+        return false;
+      }
+      if (!authForm.last_name || authForm.last_name.trim().length < 2) {
+        setAuthError("Ingresa tu apellido (mínimo 2 caracteres).");
         return false;
       }
       if (!authForm.email || !authForm.email.includes("@")) {
@@ -785,7 +812,7 @@ function App() {
           body: JSON.stringify({
             email: authForm.email,
             password: authForm.password,
-            full_name: authForm.full_name,
+            full_name: `${authForm.first_name.trim()} ${authForm.last_name.trim()}`.trim() || authForm.full_name,
             account_type: authForm.account_type,
             knowledge_level: Number(authForm.knowledge_level),
             questionnaire_answers: questionnaireAnswers,
@@ -1106,15 +1133,18 @@ function App() {
     await Promise.all([loadDocuments(), loadHealth()]);
   };
 
-  const handleDeleteDocument = async (documentId) => {
+  const handleDeleteDocument = (documentId) => {
     if (!documentId) return;
-    const first = window.confirm("¿Eliminar este documento? Esta acción no se puede deshacer.");
-    if (!first) return;
-    const second = window.confirm("¿Estás seguro? Confirma nuevamente para eliminar.");
-    if (!second) return;
+    setConfirmDeleteDocId(documentId);
+  };
+
+  const confirmDeleteDocument = async () => {
+    const id = confirmDeleteDocId;
+    if (!id) return;
+    setConfirmDeleteDocId(null);
     try {
-      await request(`/documents/${encodeURIComponent(documentId)}`, { method: "DELETE" });
-      notify(`Documento ${documentId} eliminado`, "ok");
+      await request(`/documents/${encodeURIComponent(id)}`, { method: "DELETE" });
+      notify("Documento eliminado", "ok");
       await Promise.all([loadDocuments(), loadHealth()]);
     } catch (err) {
       notify(`Error al eliminar documento: ${err.message}`, "error");
@@ -1159,36 +1189,32 @@ function App() {
     setHelpMenuOpen((prev) => !prev);
   };
 
-  const renameSession = async (session) => {
-    const currentLabel = session.title || getSessionLabel(session);
-    const nextTitle = window.prompt("Nuevo titulo para esta conversacion:", currentLabel);
-    if (nextTitle === null) {
-      return;
+  const startRename = (session) => {
+    setRenamingSessionId(session.session_id);
+    setRenameValue(session.title || getSessionLabel(session));
+  };
+
+  const commitRename = async () => {
+    const id = renamingSessionId;
+    if (!id) return;
+    setRenamingSessionId(null);
+    const cleaned = renameValue.trim();
+    if (!cleaned) return;
+    const session = sessions.find((s) => s.session_id === id);
+    if (!session || cleaned === session.title) return;
+    try {
+      await request(`/sessions/${encodeURIComponent(id)}/title`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: cleaned })
+      });
+      setSessions((current) => current.map((item) =>
+        item.session_id === id ? { ...item, title: cleaned } : item
+      ));
+      notify("Título actualizado", "ok");
+    } catch (err) {
+      notify(`Error al renombrar: ${err.message}`, "error");
     }
-
-    const cleanedTitle = nextTitle.trim();
-    if (!cleanedTitle) {
-      notify("El titulo no puede estar vacio", "error");
-      return;
-    }
-
-    if (cleanedTitle === session.title) {
-      return;
-    }
-
-    await request(`/sessions/${encodeURIComponent(session.session_id)}/title`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: cleanedTitle })
-    });
-
-    setSessions((current) => current.map((item) => (
-      item.session_id === session.session_id
-        ? { ...item, title: cleanedTitle }
-        : item
-    )));
-
-    notify("Titulo actualizado", "ok");
   };
 
   const streamChat = async (payload, assistantIndex) => {
@@ -1422,194 +1448,285 @@ function App() {
     updateScrollState();
   }, [hasMessages]);
 
+  useEffect(() => {
+    if (!settingsOpen || !settingsPanelRef.current) return;
+    const panel = settingsPanelRef.current;
+    const getFocusable = () => Array.from(panel.querySelectorAll(
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    ));
+    const focusable = getFocusable();
+    if (focusable.length) focusable[0].focus();
+    const onKey = (e) => {
+      if (e.key === "Escape") { setSettingsOpen(false); return; }
+      if (e.key !== "Tab") return;
+      const items = getFocusable();
+      if (!items.length) return;
+      if (e.shiftKey) {
+        if (document.activeElement === items[0]) { e.preventDefault(); items[items.length - 1].focus(); }
+      } else {
+        if (document.activeElement === items[items.length - 1]) { e.preventDefault(); items[0].focus(); }
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [settingsOpen]);
+
+  useEffect(() => {
+    if (!docsOpen || !docsPanelRef.current) return;
+    const panel = docsPanelRef.current;
+    const getFocusable = () => Array.from(panel.querySelectorAll(
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    ));
+    const focusable = getFocusable();
+    if (focusable.length) focusable[0].focus();
+    const onKey = (e) => {
+      if (e.key === "Escape") { setDocsOpen(false); return; }
+      if (e.key !== "Tab") return;
+      const items = getFocusable();
+      if (!items.length) return;
+      if (e.shiftKey) {
+        if (document.activeElement === items[0]) { e.preventDefault(); items[items.length - 1].focus(); }
+      } else {
+        if (document.activeElement === items[items.length - 1]) { e.preventDefault(); items[0].focus(); }
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [docsOpen]);
+
   return (
     <div className="app-shell">
       <aside className={`history-sidebar ${sidebarOpen ? "" : "collapsed"}`}>
-        <div className="sidebar-top">
-          <div className="sidebar-header-row">
-            <button className="sidebar-toggle" onClick={() => { setSidebarOpen((prev) => !prev); setHelpMenuOpen(false); }}>
-              {sidebarOpen ? "☰" : "☷"}
-            </button>
-            {sidebarOpen && <h1>Menu</h1>}
-          </div>
-          {sidebarOpen && <button className="new-chat-btn" onClick={createNewConversation}>Nueva conversacion</button>}
+        <div className="sidebar-header">
+          {sidebarOpen
+            ? <span className="sidebar-logo">AGILE</span>
+            : <button className="sidebar-toggle" onClick={() => setSidebarOpen(true)} title="Abrir menú" aria-label="Abrir menú">☰</button>
+          }
+          {sidebarOpen && (
+            <>
+              <button className="new-chat-btn" onClick={createNewConversation} title="Nueva conversación" aria-label="Nueva conversación">+</button>
+            </>
+          )}
         </div>
 
-        { /* Search input removed — historial search disabled in sidebar */ }
+        {sidebarOpen && (
+          <button className="sidebar-toggle sidebar-close" style={{ position: "absolute", top: "12px", right: "50px" }}
+            onClick={() => { setSidebarOpen(false); setHelpMenuOpen(false); }} title="Cerrar menú" aria-label="Cerrar menú">✕</button>
+        )}
 
         <div className="session-list">
-          {sidebarOpen && <div className="section-title">Conversaciones</div>}
           {sidebarOpen
             ? groupSessionsByDate(sessions).map(([label, items]) => (
-                React.createElement(React.Fragment, { key: label },
-                  React.createElement("div", { className: "session-group-label" }, label),
-                  items.map((item) => (
-                    <div key={item.session_id} className={`session-item ${item.session_id === sessionId ? "active" : ""}`}>
-                      <button className="session-select" onClick={() => loadHistory(item.session_id)}>
-                        <strong>{truncateText(getSessionLabel(item), 32)}</strong>
-                      </button>
-                      <button className="session-rename" onClick={() => renameSession(item)} title="Renombrar charla">✎</button>
-                      <button className="session-delete" onClick={() => deleteSession(item.session_id)}>x</button>
+                <div key={label} className="session-group">
+                  <div className="session-group-label">{label}</div>
+                  {items.map((item) => (
+                    <div
+                      key={item.session_id}
+                      className={`session-item ${item.session_id === sessionId ? "active" : ""}`}
+                    >
+                      {renamingSessionId === item.session_id ? (
+                        <input
+                          className="session-rename-input"
+                          value={renameValue}
+                          autoFocus
+                          aria-label="Nuevo nombre de conversación"
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter") commitRename(); if (e.key === "Escape") setRenamingSessionId(null); }}
+                          onBlur={commitRename}
+                        />
+                      ) : (
+                        <button
+                          className="session-select"
+                          onClick={() => loadHistory(item.session_id)}
+                          title={getSessionLabel(item)}
+                          aria-current={item.session_id === sessionId ? "true" : undefined}
+                        >
+                          {truncateText(getSessionLabel(item), 30)}
+                        </button>
+                      )}
+                      <span className="session-item-actions">
+                        <button className="session-rename" onClick={() => startRename(item)} title="Renombrar" aria-label={`Renombrar: ${getSessionLabel(item)}`}>✎</button>
+                        <button className="session-delete" onClick={() => deleteSession(item.session_id)} title="Eliminar" aria-label={`Eliminar: ${getSessionLabel(item)}`}>×</button>
+                      </span>
                     </div>
-                  ))
-                )
+                  ))}
+                </div>
               ))
             : sessions.map((item) => (
-                <div key={item.session_id} className={`session-item ${item.session_id === sessionId ? "active" : ""}`}>
-                  <button className="session-dot" onClick={() => loadHistory(item.session_id)} title={getSessionLabel(item)}>●</button>
+                <div key={item.session_id}
+                  className={`session-item ${item.session_id === sessionId ? "active" : ""}`}
+                  style={{ padding: "8px", display: "flex", justifyContent: "center" }}
+                >
+                  <button className="session-dot" onClick={() => loadHistory(item.session_id)} title={getSessionLabel(item)} aria-label={getSessionLabel(item)}>●</button>
                 </div>
               ))
           }
         </div>
 
         <div className="sidebar-footer">
-          <div className="sidebar-tools">
-            <button className="sidebar-menu-trigger" onClick={toggleHelpMenu} title="Configuracion y ayuda">
-              ⚙
-            </button>
-            {sidebarOpen && <span>Configuracion</span>}
-          </div>
-
-          {sidebarOpen && currentUser && (
-            <div className="user-card">
-              <strong>{currentUser.full_name}</strong>
-              <span>{currentUser.email}</span>
-              <span>{currentUser.agile_adoption_label}</span>
-              <button className="ghost-btn small-btn" onClick={logout}>Salir</button>
-            </div>
-          )}
-
-          {sidebarOpen && !currentUser && (
-            <div className="user-card empty">
-              <strong>Sesión cerrada</strong>
-              <span>Usa el panel central para iniciar sesión.</span>
+          {sidebarOpen && (
+            <div className="sidebar-tools">
+              <button className="sidebar-menu-trigger" onClick={toggleHelpMenu} title="Configuración y ayuda" aria-label="Configuración y ayuda" aria-expanded={helpMenuOpen}>⚙</button>
+              <span className="sidebar-tools-label">Configuración</span>
             </div>
           )}
 
           {helpMenuOpen && (
             <div className="sidebar-help-menu">
-              <button onClick={() => { setSettingsOpen(true); setHelpMenuOpen(false); }}>Configuracion avanzada</button>
-              <button onClick={() => { setDocsOpen(true); loadDocuments().catch(() => {}); setHelpMenuOpen(false); }}>Gestion de documentos</button>
+              <button onClick={() => { setSettingsOpen(true); setHelpMenuOpen(false); }}>Configuración avanzada</button>
+              <button onClick={() => { setDocsOpen(true); loadDocuments().catch(() => {}); setHelpMenuOpen(false); }}>Gestión de documentos</button>
               <button onClick={() => { setTheme(theme === "dark" ? "light" : "dark"); setHelpMenuOpen(false); }}>
                 Tema: {theme === "dark" ? "Claro" : "Oscuro"}
               </button>
             </div>
           )}
 
-          {sidebarOpen && (
-            <>
-              <p>Estado: {health.status}</p>
-              <p>RAG: {health.rag_status}</p>
-            </>
+          {sidebarOpen && currentUser && (
+            <div className="user-card">
+              <div className="avatar">{getInitials(currentUser.full_name)}</div>
+              <div className="user-info">
+                <div className="user-name">{currentUser.full_name}</div>
+                <div className="user-role">{currentUser.agile_adoption_label || "Agile learner"}</div>
+              </div>
+              <button className="sidebar-logout-btn" onClick={logout} title="Cerrar sesión" aria-label="Cerrar sesión">↪</button>
+            </div>
+          )}
+
+          {sidebarOpen && !currentUser && (
+            <div className="user-card empty">
+              <div className="avatar">?</div>
+              <div className="user-info">
+                <div className="user-name">Sin sesión</div>
+              </div>
+            </div>
           )}
         </div>
       </aside>
 
       {!sidebarOpen && (
-        <button className="floating-new-chat" onClick={createNewConversation} title="Nueva charla">＋</button>
+        <button className="floating-new-chat" onClick={createNewConversation} title="Nueva conversación" aria-label="Nueva conversación">＋</button>
       )}
 
       <main className="chat-main">
-        <div className="app-brand">Chatbot Agil</div>
+        <div className="app-brand" style={{ display: "none" }}></div>
+
+        {currentUser && (
+          <div className="chat-header">
+            <span className="chat-session-title">
+              {activeSession ? getSessionLabel(activeSession) : "Agile Assistant"}
+            </span>
+          </div>
+        )}
 
         {authReady && !currentUser && (
           <section className="auth-gate">
             <div className="auth-card">
-              <div className="auth-card-header">
-                <div>
-                  <div className="welcome-kicker">Acceso requerido</div>
-                  <h2>Inicia sesión o crea tu cuenta</h2>
-                  <p>Tu historial, tus sesiones y tu nivel de conocimiento se guardan por usuario.</p>
-                </div>
-                <div className="auth-tab-switcher">
-                  <button className={authMode === "login" ? "active" : ""} onClick={() => { setAuthMode("login"); setRegisterStep(1); setAuthError(null); }}>Entrar</button>
-                  <button className={authMode === "register" ? "active" : ""} onClick={() => { setAuthMode("register"); setRegisterStep(1); setAuthError(null); }}>Registrar</button>
-                </div>
+              <div className="auth-brand">
+                <div className="auth-logo-text">AGILE ASSISTANT</div>
+                <div className="auth-tagline">Tu tutor de metodologías ágiles</div>
+              </div>
+
+              <div className="tab-switcher">
+                <button
+                  className={`tab-btn ${authMode === "login" ? "active" : ""}`}
+                  onClick={() => { setAuthMode("login"); setRegisterStep(1); setAuthError(null); setAuthMessage(""); setAuthForm({ email: "", password: "", first_name: "", last_name: "", full_name: "", account_type: "Estudiante", knowledge_level: 1, questionnaire_answers: ["","","","",""] }); }}
+                >Iniciar sesión</button>
+                <button
+                  className={`tab-btn ${authMode === "register" ? "active" : ""}`}
+                  onClick={() => { setAuthMode("register"); setRegisterStep(1); setAuthError(null); setAuthMessage(""); setAuthForm({ email: "", password: "", first_name: "", last_name: "", full_name: "", account_type: "Estudiante", knowledge_level: 1, questionnaire_answers: ["","","","",""] }); }}
+                >Registrarse</button>
               </div>
 
               {authError && <p className="auth-status error">{authError}</p>}
               {authMessage && <p className="auth-status ok">{authMessage}</p>}
 
               {authMode === "login" && (
-                <div className="auth-grid">
-                  <label>
-                    Email
-                    <input type="email" value={authForm.email} onChange={(event) => updateAuthField("email", event.target.value)} />
-                  </label>
-                  <label>
-                    Contraseña
-                    <input type="password" value={authForm.password} onChange={(event) => updateAuthField("password", event.target.value)} />
-                  </label>
+                <div className="field-group">
+                  <div className="field">
+                    <label htmlFor="login-email">Correo electrónico</label>
+                    <input id="login-email" type="email" value={authForm.email} onChange={(e) => updateAuthField("email", e.target.value)} placeholder="usuario@correo.com" />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="login-password">Contraseña</label>
+                    <input id="login-password" type="password" value={authForm.password} onChange={(e) => updateAuthField("password", e.target.value)} placeholder="••••••••" />
+                  </div>
                 </div>
               )}
 
               {authMode === "register" && (
                 <>
-                  <div className="wizard-progress">
-                    <div className="wizard-progress-header">
-                      <span className="wizard-progress-label">
+                  <div className="progress-block">
+                    <div className="progress-header">
+                      <span className="progress-label">
                         {registerStep === 1 && "Tu cuenta"}
                         {registerStep === 2 && "Preguntas 1 – 3"}
                         {registerStep === 3 && "Preguntas 4 – 5"}
                         {registerStep === 4 && "Nivel general"}
                       </span>
-                      <span className="wizard-progress-count">{registerStep} / 4</span>
+                      <span className="progress-count">{registerStep} / 4</span>
                     </div>
-                    <div className="wizard-progress-track">
-                      <div className="wizard-progress-fill" style={{ width: `${(registerStep / 4) * 100}%` }}></div>
+                    <div
+                      className="progress-track"
+                      role="progressbar"
+                      aria-valuenow={registerStep}
+                      aria-valuemin={1}
+                      aria-valuemax={4}
+                      aria-label={`Paso ${registerStep} de 4`}
+                    >
+                      <div className="progress-fill" style={{ width: `${(registerStep / 4) * 100}%` }}></div>
                     </div>
                   </div>
 
+                  <div className="step-dots">
+                    {[1, 2, 3, 4].map((n) => (
+                      <div key={n} className={`step-dot ${n === registerStep ? "active" : n < registerStep ? "done" : ""}`} />
+                    ))}
+                  </div>
+
                   {registerStep === 1 && (
-                    <div className="auth-grid">
-                      <label>
-                        Nombre y apellido
-                        <input
-                          type="text"
-                          value={authForm.full_name}
-                          onChange={(e) => updateAuthField("full_name", e.target.value)}
-                          placeholder="Ej. Andy Macas"
-                        />
-                      </label>
-                      <label>
-                        Correo electrónico
-                        <input
-                          type="email"
-                          value={authForm.email}
-                          onChange={(e) => updateAuthField("email", e.target.value)}
-                          placeholder="usuario@correo.com"
-                        />
-                      </label>
-                      <label>
-                        Contraseña
-                        <input
-                          type="password"
-                          value={authForm.password}
-                          onChange={(e) => updateAuthField("password", e.target.value)}
-                          placeholder="Mínimo 8 caracteres"
-                        />
-                      </label>
+                    <div className="field-group">
+                      <div className="field-row">
+                        <div className="field">
+                          <label htmlFor="reg-first-name">Nombre</label>
+                          <input id="reg-first-name" type="text" value={authForm.first_name} onChange={(e) => updateAuthField("first_name", e.target.value)} placeholder="Ej. Andy" />
+                        </div>
+                        <div className="field">
+                          <label htmlFor="reg-last-name">Apellido</label>
+                          <input id="reg-last-name" type="text" value={authForm.last_name} onChange={(e) => updateAuthField("last_name", e.target.value)} placeholder="Ej. Macas" />
+                        </div>
+                      </div>
+                      <div className="field">
+                        <label htmlFor="reg-email">Correo electrónico</label>
+                        <input id="reg-email" type="email" value={authForm.email} onChange={(e) => updateAuthField("email", e.target.value)} placeholder="usuario@correo.com" />
+                      </div>
+                      <div className="field">
+                        <label htmlFor="reg-password">Contraseña</label>
+                        <input id="reg-password" type="password" value={authForm.password} onChange={(e) => updateAuthField("password", e.target.value)} placeholder="Mínimo 8 caracteres" />
+                      </div>
                     </div>
                   )}
 
                   {registerStep === 2 && (
                     <div className="questionnaire-block">
                       {AGILE_QUESTIONNAIRE.slice(0, 3).map((question, index) => (
-                        <label key={question.id} className="question-item">
-                          <span className="question-title">Pregunta {question.id}</span>
-                          <span className="question-statement">{question.statement}</span>
-                          <select
-                            value={authForm.questionnaire_answers[index]}
-                            onChange={(e) => updateQuestionnaireAnswer(index, e.target.value)}
-                          >
-                            <option value="">Seleccionar</option>
+                        <div key={question.id} className="question-item">
+                          <div className="q-number">Pregunta {question.id}</div>
+                          <p className="question-text" id={`q2-${question.id}-label`}>{question.statement}</p>
+                          <div className="question-options" role="radiogroup" aria-labelledby={`q2-${question.id}-label`}>
                             {question.options.map((option) => (
-                              <option key={`${question.id}-${option.value}`} value={option.value}>
+                              <button
+                                key={option.value}
+                                type="button"
+                                className={`q-option ${authForm.questionnaire_answers[index] === option.value ? "selected" : ""}`}
+                                aria-pressed={authForm.questionnaire_answers[index] === option.value}
+                                onClick={() => updateQuestionnaireAnswer(index, option.value)}
+                              >
+                                <div className="q-radio" aria-hidden="true" />
                                 {option.label}
-                              </option>
+                              </button>
                             ))}
-                          </select>
-                        </label>
+                          </div>
+                        </div>
                       ))}
                     </div>
                   )}
@@ -1617,79 +1734,76 @@ function App() {
                   {registerStep === 3 && (
                     <div className="questionnaire-block">
                       {AGILE_QUESTIONNAIRE.slice(3, 5).map((question, index) => (
-                        <label key={question.id} className="question-item">
-                          <span className="question-title">Pregunta {question.id}</span>
-                          <span className="question-statement">{question.statement}</span>
-                          <select
-                            value={authForm.questionnaire_answers[index + 3]}
-                            onChange={(e) => updateQuestionnaireAnswer(index + 3, e.target.value)}
-                          >
-                            <option value="">Seleccionar</option>
+                        <div key={question.id} className="question-item">
+                          <div className="q-number">Pregunta {question.id}</div>
+                          <p className="question-text" id={`q3-${question.id}-label`}>{question.statement}</p>
+                          <div className="question-options" role="radiogroup" aria-labelledby={`q3-${question.id}-label`}>
                             {question.options.map((option) => (
-                              <option key={`${question.id}-${option.value}`} value={option.value}>
+                              <button
+                                key={option.value}
+                                type="button"
+                                className={`q-option ${authForm.questionnaire_answers[index + 3] === option.value ? "selected" : ""}`}
+                                aria-pressed={authForm.questionnaire_answers[index + 3] === option.value}
+                                onClick={() => updateQuestionnaireAnswer(index + 3, option.value)}
+                              >
+                                <div className="q-radio" aria-hidden="true" />
                                 {option.label}
-                              </option>
+                              </button>
                             ))}
-                          </select>
-                        </label>
+                          </div>
+                        </div>
                       ))}
                     </div>
                   )}
 
                   {registerStep === 4 && (
-                    <div className="auth-grid">
-                      <label>
-                        Nivel de conocimiento en agilidad
-                        <select
-                          value={authForm.knowledge_level}
-                          onChange={(e) => updateAuthField("knowledge_level", Number(e.target.value))}
+                    <div className="level-selector" role="radiogroup" aria-label="Nivel de conocimiento ágil">
+                      {[
+                        { level: 1, text: "Principiante — No conozco las metodologías ágiles" },
+                        { level: 2, text: "Básico — Conozco los conceptos fundamentales" },
+                        { level: 3, text: "Intermedio — Aplico frameworks en proyectos reales" },
+                        { level: 4, text: "Avanzado — Lidero equipos ágiles o soy coach certificado" },
+                      ].map(({ level, text }) => (
+                        <button
+                          key={level}
+                          type="button"
+                          className={`level-card ${authForm.knowledge_level === level ? "selected" : ""}`}
+                          aria-pressed={authForm.knowledge_level === level}
+                          onClick={() => updateAuthField("knowledge_level", level)}
                         >
-                          <option value={1}>1 — Principiante (no conozco metodologías ágiles)</option>
-                          <option value={2}>2 — Básico (conozco los conceptos fundamentales)</option>
-                          <option value={3}>3 — Intermedio (aplico frameworks en proyectos reales)</option>
-                          <option value={4}>4 — Avanzado (lidero equipos ágiles o soy coach)</option>
-                        </select>
-                      </label>
+                          <div className="level-num" aria-hidden="true">{level}</div>
+                          <div className="level-text">{text}</div>
+                        </button>
+                      ))}
                     </div>
                   )}
                 </>
               )}
 
-              <div className="panel-actions">
-                {authMode === "login" ? (
-                  <button className="primary-btn" onClick={submitAuth} disabled={authSubmitting}>
-                    {authSubmitting ? "Procesando..." : "Entrar"}
-                  </button>
-                ) : registerStep < 4 ? (
-                  <button
-                    className="primary-btn"
-                    onClick={() => {
-                      if (validateRegisterStep(registerStep)) {
-                        setRegisterStep((s) => s + 1);
-                      }
-                    }}
-                  >
-                    Continuar →
-                  </button>
-                ) : (
-                  <button className="primary-btn" onClick={submitAuth} disabled={authSubmitting}>
-                    {authSubmitting ? "Procesando..." : "✓ Crear mi cuenta"}
-                  </button>
-                )}
-                {authMode === "register" && registerStep > 1 && (
-                  <button
-                    className="ghost-btn"
-                    onClick={() => { setRegisterStep((s) => s - 1); setAuthError(null); }}
-                  >
-                    ← Atrás
-                  </button>
-                )}
-                {authMode === "register" && registerStep === 1 && (
-                  <button className="ghost-btn" onClick={() => setAuthMode("login")}>
-                    Ya tengo cuenta
-                  </button>
-                )}
-              </div>
+              {authMode === "login" ? (
+                <button className="cta-btn" onClick={submitAuth} disabled={authSubmitting}>
+                  {authSubmitting ? "Procesando..." : "Entrar"}
+                </button>
+              ) : registerStep < 4 ? (
+                <button className="cta-btn" onClick={() => { if (validateRegisterStep(registerStep)) setRegisterStep((s) => s + 1); }}>
+                  Continuar →
+                </button>
+              ) : (
+                <button className="cta-btn" onClick={submitAuth} disabled={authSubmitting}>
+                  {authSubmitting ? "Procesando..." : "✓ Crear mi cuenta"}
+                </button>
+              )}
+
+              {authMode === "register" && registerStep > 1 && (
+                <button className="cta-secondary" onClick={() => { setRegisterStep((s) => s - 1); setAuthError(null); }}>
+                  ← Atrás
+                </button>
+              )}
+              {authMode === "register" && registerStep === 1 && (
+                <button className="cta-secondary" onClick={() => setAuthMode("login")}>
+                  Ya tengo cuenta
+                </button>
+              )}
             </div>
           </section>
         )}
@@ -1705,7 +1819,7 @@ function App() {
 
           {currentUser && hasMessages && (
             <div className="conversation-headline">
-              {activeSession ? getSessionLabel(activeSession) : "Nueva conversacion"}
+              {activeSession ? getSessionLabel(activeSession) : "Nueva conversación"}
             </div>
           )}
 
@@ -1714,21 +1828,41 @@ function App() {
               <article key={`${item.role}-${index}`} className={`bubble ${item.role}`}>
                 {String(item.role || "").toLowerCase() === "user"
                   ? <p>{item.content}</p>
-                  : String(item.content || "").trim().length > 0
-                    ? <MarkdownContent content={item.content} enabled={markdownRendering} />
-                    : item.role === "assistant" && isSending && index === messages.length - 1
-                      ? (
-                          <div className="streaming-row">
-                            <div className="typing-indicator">
-                              <div className="typing-dot"></div>
-                              <div className="typing-dot"></div>
-                              <div className="typing-dot"></div>
-                            </div>
-                            <button className="cancel-stream-btn" onClick={cancelStream}>✕ Cancelar</button>
+                  : (
+                    <div className="assistant-row">
+                      <div className="bot-avatar" aria-hidden="true">✦</div>
+                      <div className="bubble-text">
+                        {String(item.content || "").trim().length > 0
+                          ? <MarkdownContent content={item.content} enabled={markdownRendering} />
+                          : item.role === "assistant" && isSending && index === messages.length - 1
+                            ? (
+                                <div className="streaming-row">
+                                  <div className="typing-indicator">
+                                    <div className="typing-dot"></div>
+                                    <div className="typing-dot"></div>
+                                    <div className="typing-dot"></div>
+                                  </div>
+                                  <button className="cancel-stream-btn" onClick={cancelStream}>✕ Cancelar</button>
+                                </div>
+                              )
+                            : null}
+                        {Array.isArray(item.attachments) && item.attachments.length > 0 && (
+                          <div className="message-attachments">
+                            {item.attachments.map((attachment, attachmentIndex) => (
+                              <AttachmentPreview
+                                key={`${attachment.filename || attachmentIndex}-${attachmentIndex}`}
+                                item={attachment}
+                                onOpen={openAttachmentViewer}
+                              />
+                            ))}
                           </div>
-                        )
-                      : null}
-                {Array.isArray(item.attachments) && item.attachments.length > 0 && (
+                        )}
+                        <SourceReferences sources={item.sources} />
+                      </div>
+                    </div>
+                  )
+                }
+                {String(item.role || "").toLowerCase() === "user" && Array.isArray(item.attachments) && item.attachments.length > 0 && (
                   <div className="message-attachments">
                     {item.attachments.map((attachment, attachmentIndex) => (
                       <AttachmentPreview
@@ -1739,7 +1873,7 @@ function App() {
                     ))}
                   </div>
                 )}
-                <SourceReferences sources={item.sources} />
+                {String(item.role || "").toLowerCase() === "user" && <SourceReferences sources={item.sources} />}
               </article>
             ))}
           </div>
@@ -1760,20 +1894,12 @@ function App() {
               onChange={handleSessionUpload}
               style={{ display: "none" }}
             />
-            <button
-              className="input-icon"
-              onClick={handleSessionUploadClick}
-              title="Adjuntar a esta sesion"
-              disabled={isUploadingSessionDocs}
-            >
-              {isUploadingSessionDocs ? "…" : "＋"}
-            </button>
 
             <textarea
               rows={1}
               value={input}
               onChange={(event) => setInput(event.target.value)}
-              placeholder={currentUser ? "Pregunta a Agile Assistant" : "Inicia sesión para usar el chat"}
+              placeholder={currentUser ? "Pregunta sobre metodologías ágiles…" : "Inicia sesión para usar el chat"}
               onPaste={handleSessionPaste}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
@@ -1798,39 +1924,33 @@ function App() {
                       <span className="attachment-name">{attachmentLabel(item)}</span>
                       <span className="attachment-kind">{attachmentKindLabel(item)}</span>
                     </span>
-                    {image && attachmentSourceUrl(item) && (
-                      <button
-                        type="button"
-                        className="attachment-thumb-button"
-                        onClick={() => openAttachmentViewer(item)}
-                        title="Ver imagen"
-                      >
-                        <img className="attachment-thumb" src={attachmentSourceUrl(item)} alt={attachmentLabel(item)} />
+                    {image && (item.previewUrl || attachmentSourceUrl(item)) && (
+                      <button type="button" className="attachment-thumb-button" onClick={() => openAttachmentViewer(item)} title="Ver imagen">
+                        <img className="attachment-thumb" src={item.previewUrl || attachmentSourceUrl(item)} alt={attachmentLabel(item)} />
                       </button>
                     )}
                     {!image && <span className="attachment-icon" aria-hidden="true">📎</span>}
-                    <button
-                      type="button"
-                      className="attachment-remove-btn"
-                      onClick={() => removePendingAttachment(index)}
-                      title="Quitar adjunto"
-                      aria-label={`Quitar ${attachmentLabel(item)}`}
-                    >
-                      ×
-                    </button>
+                    <button type="button" className="attachment-remove-btn" onClick={() => removePendingAttachment(index)} title="Quitar adjunto" aria-label={`Quitar ${attachmentLabel(item)}`}>×</button>
                   </div>
                 );
               })}
             </div>
 
             <div className="input-toolbar">
-              <select value={provider} onChange={(event) => setProvider(event.target.value)}>
-                {(providers || []).map((item) => <option key={item} value={item}>{item}</option>)}
-              </select>
-              <select value={model} onChange={(event) => setModel(event.target.value)}>
-                {(modelsForCurrentProvider || []).map((item) => <option key={item} value={item}>{item}</option>)}
-              </select>
-              <button className="primary-btn" onClick={sendMessage} disabled={isSending}>{isSending ? "Pensando..." : "Enviar"}</button>
+              <div className="toolbar-left">
+                <button className="toolbar-chip" onClick={handleSessionUploadClick} disabled={isUploadingSessionDocs} title="Adjuntar archivo">
+                  📎 Adjuntar
+                </button>
+                <select className="toolbar-model-select" value={provider} onChange={(e) => setProvider(e.target.value)}>
+                  {(providers || []).map((item) => <option key={item} value={item}>{item}</option>)}
+                </select>
+                <select className="toolbar-model-select" value={model} onChange={(e) => setModel(e.target.value)}>
+                  {(modelsForCurrentProvider || []).map((item) => <option key={item} value={item}>{item}</option>)}
+                </select>
+              </div>
+              <button className="send-btn" onClick={sendMessage} disabled={isSending} title={isSending ? "Generando..." : "Enviar"} aria-label={isSending ? "Generando respuesta" : "Enviar mensaje"}>
+                {isSending ? "…" : "↑"}
+              </button>
             </div>
           </div>
         </footer>
@@ -1842,23 +1962,31 @@ function App() {
         )}
       </main>
 
-      {alert && <div className={`alert ${alert.type}`}>{alert.message}</div>}
+      {alert && <div className={`alert ${alert.type}`} role="alert" aria-live="assertive">{alert.message}</div>}
 
       {settingsOpen && (
         <div className="overlay" onClick={() => setSettingsOpen(false)}>
-          <section className="panel" onClick={(event) => event.stopPropagation()}>
-            <h3>Configuracion avanzada</h3>
-            <label>API Base URL</label>
-            <input value={apiBase} onChange={(event) => setApiBase(event.target.value)} />
+          <section
+            ref={settingsPanelRef}
+            className="panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="settings-dialog-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3 id="settings-dialog-title">Configuración avanzada</h3>
+            <label htmlFor="settings-api-base">API Base URL</label>
+            <input id="settings-api-base" value={apiBase} onChange={(event) => setApiBase(event.target.value)} />
 
-            <label>Temperature: {temperature}</label>
-            <input type="range" min="0" max="1" step="0.1" value={temperature} onChange={(event) => setTemperature(Number(event.target.value))} />
+            <label htmlFor="settings-temperature">Temperature: {temperature}</label>
+            <input id="settings-temperature" type="range" min="0" max="1" step="0.1" value={temperature} onChange={(event) => setTemperature(Number(event.target.value))} />
 
-            <label>Max tokens</label>
-            <input type="number" min="1" value={maxTokens} onChange={(event) => setMaxTokens(Number(event.target.value))} />
+            <label htmlFor="settings-max-tokens">Max tokens</label>
+            <input id="settings-max-tokens" type="number" min="1" value={maxTokens} onChange={(event) => setMaxTokens(Number(event.target.value))} />
 
             <label className="checkbox-row">
               <input
+                id="settings-markdown"
                 type="checkbox"
                 checked={markdownRendering}
                 onChange={(event) => setMarkdownRendering(event.target.checked)}
@@ -1876,8 +2004,15 @@ function App() {
 
       {docsOpen && (
         <div className="overlay" onClick={() => setDocsOpen(false)}>
-          <section className="panel" onClick={(event) => event.stopPropagation()}>
-            <h3>Gestion de documentos</h3>
+          <section
+            ref={docsPanelRef}
+            className="panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="docs-dialog-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3 id="docs-dialog-title">Gestión de documentos</h3>
             <p>{documentsSummary}</p>
             <input
               ref={globalFileInputRef}
@@ -1903,6 +2038,7 @@ function App() {
               ) : (
                 documents.map((item, index) => {
                   const documentId = item.file_hash || item.document_id || item.id || "Sin ID";
+                  const isPendingDelete = confirmDeleteDocId === documentId;
                   return (
                     <article key={`${item.filename}-${index}`} className="doc-entry">
                       <div className="doc-entry-head">
@@ -1912,7 +2048,15 @@ function App() {
                       <p><span className="doc-label">Origen:</span> {item.source || "Sin origen"}</p>
                       <p><span className="doc-label">ID:</span> <code>{documentId}</code></p>
                       <div className="doc-actions">
-                        <button className="danger-btn" onClick={() => handleDeleteDocument(documentId)}>Eliminar</button>
+                        {isPendingDelete ? (
+                          <div className="confirm-delete-row" role="group" aria-label="Confirmar eliminación">
+                            <span>¿Eliminar este documento?</span>
+                            <button className="danger-btn" onClick={confirmDeleteDocument}>Confirmar</button>
+                            <button className="ghost-btn" onClick={() => setConfirmDeleteDocId(null)}>Cancelar</button>
+                          </div>
+                        ) : (
+                          <button className="danger-btn" onClick={() => handleDeleteDocument(documentId)} aria-label={`Eliminar ${item.filename || "documento"}`}>Eliminar</button>
+                        )}
                       </div>
                     </article>
                   );
@@ -1920,11 +2064,17 @@ function App() {
               )}
             </div>
 
-            {/* Eliminacion por ID eliminada; ahora cada documento tiene su boton de borrar con doble confirmacion */}
-
             <div className="panel-actions">
               <button className="ghost-btn" onClick={() => setDocsOpen(false)}>Cerrar</button>
-              <button className="danger-btn" onClick={clearDocuments}>Vaciar todo</button>
+              {confirmClearDocs ? (
+                <div className="confirm-delete-row" role="group" aria-label="Confirmar vaciado">
+                  <span>¿Eliminar todos?</span>
+                  <button className="danger-btn" onClick={() => { setConfirmClearDocs(false); clearDocuments(); }}>Confirmar</button>
+                  <button className="ghost-btn" onClick={() => setConfirmClearDocs(false)}>Cancelar</button>
+                </div>
+              ) : (
+                <button className="danger-btn" onClick={() => setConfirmClearDocs(true)}>Vaciar todo</button>
+              )}
             </div>
           </section>
         </div>
@@ -1941,6 +2091,12 @@ function App() {
           </section>
         </div>
       )}
+
+      <div className="sr-only" role="status" aria-live="polite" aria-atomic="false">
+        {messages.length > 0 && messages[messages.length - 1].role === "assistant"
+          ? messages[messages.length - 1].content
+          : ""}
+      </div>
     </div>
   );
 }
