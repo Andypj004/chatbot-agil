@@ -363,6 +363,23 @@ def test_me_with_invalid_token_returns_401(auth_client):
     assert resp.status_code == 401
 
 
+def test_register_response_includes_is_admin(auth_client):
+    response = auth_client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": "newuser@example.com",
+            "password": "securepass",
+            "full_name": "New User",
+            "account_type": "Estudiante",
+            "knowledge_level": 2,
+            "questionnaire_answers": [],
+        },
+    )
+    assert response.status_code == 200
+    assert "is_admin" in response.json()["user"]
+    assert response.json()["user"]["is_admin"] is False
+
+
 def test_sessions_filtered_by_token(auth_client):
     """Sessions endpoint should return only the requesting user's sessions."""
     from unittest.mock import Mock, patch

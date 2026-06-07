@@ -57,6 +57,7 @@ class UserProfileResponse(APIBaseModel):
     knowledge_level: int
     agile_adoption_level: int
     agile_adoption_label: str
+    is_admin: bool = False
     created_at: str
     updated_at: str
     last_login_at: Optional[str] = None
@@ -68,6 +69,13 @@ class AuthResponse(APIBaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserProfileResponse
+
+
+class UserListResponse(APIBaseModel):
+    """Response model for admin user listing."""
+
+    total: int
+    users: List[UserProfileResponse]
 
 
 class ChatRequest(APIBaseModel):
