@@ -499,6 +499,9 @@ class TestDeleteUser:
         result = sm.delete_user(uid)
         assert isinstance(result, list)
         assert sid in result
+        # Verify cascade: messages and session actually removed from DB
+        assert sm.get_messages(sid) == []
+        assert sm.get_session_record(sid) is None
 
     def test_delete_user_removes_user_from_db(self, sm):
         profile = sm.create_user(
@@ -546,3 +549,16 @@ class TestDeleteUser:
             knowledge_level=1,
         )
         assert sm.count_users() == initial + 1
+
+    def test_delete_user_with_no_sessions_returns_empty_list(self, sm):
+        profile = sm.create_user(
+            email="nosessions@test.com",
+            password="password123",
+            full_name="No Sessions",
+            account_type="Estudiante",
+            knowledge_level=1,
+        )
+        uid = profile["user_id"]
+        result = sm.delete_user(uid)
+        assert result == []
+        assert sm.get_user_profile(uid) is None
