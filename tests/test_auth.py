@@ -480,3 +480,69 @@ class TestIsAdminField:
             is_admin=False,
         )
         assert profile["is_admin"] is False
+
+
+class TestDeleteUser:
+    def test_delete_user_returns_session_ids(self, sm):
+        profile = sm.create_user(
+            email="todelete@test.com",
+            password="password123",
+            full_name="To Delete",
+            account_type="Estudiante",
+            knowledge_level=1,
+        )
+        uid = profile["user_id"]
+        sid = "session-del-1"
+        sm.create_session(session_id=sid, user_id=uid)
+        sm.append_message(session_id=sid, role="user", text="hello")
+
+        result = sm.delete_user(uid)
+        assert isinstance(result, list)
+        assert sid in result
+
+    def test_delete_user_removes_user_from_db(self, sm):
+        profile = sm.create_user(
+            email="gone@test.com",
+            password="password123",
+            full_name="Gone",
+            account_type="Estudiante",
+            knowledge_level=1,
+        )
+        uid = profile["user_id"]
+        sm.delete_user(uid)
+        assert sm.get_user_profile(uid) is None
+
+    def test_delete_user_not_found_returns_none(self, sm):
+        result = sm.delete_user("nonexistent-id")
+        assert result is None
+
+    def test_list_users_returns_all(self, sm):
+        sm.create_user(
+            email="user1@test.com",
+            password="password123",
+            full_name="User One",
+            account_type="Estudiante",
+            knowledge_level=1,
+        )
+        sm.create_user(
+            email="user2@test.com",
+            password="password123",
+            full_name="User Two",
+            account_type="Profesor",
+            knowledge_level=2,
+        )
+        users = sm.list_users()
+        emails = [u["email"] for u in users]
+        assert "user1@test.com" in emails
+        assert "user2@test.com" in emails
+
+    def test_count_users(self, sm):
+        initial = sm.count_users()
+        sm.create_user(
+            email="count@test.com",
+            password="password123",
+            full_name="Count Me",
+            account_type="Estudiante",
+            knowledge_level=1,
+        )
+        assert sm.count_users() == initial + 1

@@ -1134,6 +1134,54 @@ class SessionManager:
             return None
         return self.get_user_profile(user_id)
 
+    def delete_user(self, user_id: str) -> Optional[List[str]]:
+        """Delete a user and all their data. Returns deleted session_ids, or None if user not found."""
+        with self._lock:
+            with self._connect() as conn:
+                row = conn.execute(
+                    "SELECT user_id FROM users WHERE user_id = ?", (user_id,)
+                ).fetchone()
+                if row is None:
+                    return None
+
+                session_rows = conn.execute(
+                    "SELECT session_id FROM sessions WHERE user_id = ?", (user_id,)
+                ).fetchall()
+                session_ids = [r["session_id"] for r in session_rows]
+
+                if session_ids:
+                    placeholders = ",".join("?" * len(session_ids))
+                    for table in (
+                        "session_concepts",
+                        "form_states",
+                        "session_citations",
+                        "session_documents",
+                        "messages",
+                    ):
+                        conn.execute(
+                            f"DELETE FROM {table} WHERE session_id IN ({placeholders})",
+                            session_ids,
+                        )
+
+                conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+                conn.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
+                conn.commit()
+                return session_ids
+
+    def list_users(self, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+        """Return a paginated list of all users ordered by creation date descending."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                (limit, offset),
+            ).fetchall()
+        return [r for r in (self._serialize_user_row(row) for row in rows) if r is not None]
+
+    def count_users(self) -> int:
+        """Return the total number of registered users."""
+        with self._connect() as conn:
+            return conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+
     def build_user_context(self, user_id: str) -> str:
         profile = self.get_user_profile(user_id)
         if not profile:
