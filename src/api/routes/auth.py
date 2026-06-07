@@ -2,13 +2,18 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from src.api.dependencies import get_current_user, get_session_manager
+from src.api.dependencies import (
+    get_current_user,
+    get_session_manager,
+    cleanup_user_sessions,
+)
 from src.api.models import (
     AuthResponse,
     UserLoginRequest,
     UserProfileResponse,
     UserRegistrationRequest,
 )
+from src.core.config import settings
 from src.memory.session_manager import SessionManager
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -23,6 +28,7 @@ def _profile_response(profile: dict) -> UserProfileResponse:
         knowledge_level=profile["knowledge_level"],
         agile_adoption_level=profile["agile_adoption_level"],
         agile_adoption_label=profile["agile_adoption_label"],
+        is_admin=profile.get("is_admin", False),
         created_at=profile["created_at"],
         updated_at=profile["updated_at"],
         last_login_at=profile.get("last_login_at"),
@@ -39,6 +45,7 @@ def register_user(
         questionnaire_answers = [
             item.model_dump() for item in request.questionnaire_answers
         ]
+        is_admin = request.email.strip().lower() in settings.admin_email_list
         profile = session_manager.create_user(
             email=request.email,
             password=request.password,
@@ -46,6 +53,7 @@ def register_user(
             account_type=request.account_type,
             knowledge_level=request.knowledge_level,
             questionnaire_answers=questionnaire_answers,
+            is_admin=is_admin,
         )
         token = session_manager.issue_user_token(profile["user_id"])
         return AuthResponse(access_token=token, user=_profile_response(profile))
@@ -80,3 +88,19 @@ def login_user(
 def get_me(current_user=Depends(get_current_user)):
     """Return the current authenticated user."""
     return _profile_response(current_user)
+
+
+@router.delete("/me", summary="Delete the authenticated user's own account")
+def delete_me(
+    current_user=Depends(get_current_user),
+    session_manager: SessionManager = Depends(get_session_manager),
+):
+    """Permanently delete the authenticated user's account and all their data."""
+    session_ids = session_manager.delete_user(current_user["user_id"])
+    if session_ids is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Usuario no encontrado",
+        )
+    cleanup_user_sessions(session_ids)
+    return {"message": "Cuenta eliminada exitosamente"}

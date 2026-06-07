@@ -579,3 +579,41 @@ class TestDeleteUser:
         result = sm.delete_user(uid)
         assert result == []
         assert sm.get_user_profile(uid) is None
+
+
+class TestDeleteMe:
+    def _register(self, client, email="del@example.com"):
+        resp = client.post(
+            "/api/v1/auth/register",
+            json={
+                "email": email,
+                "password": "password123",
+                "full_name": "Del User",
+                "account_type": "Estudiante",
+                "knowledge_level": 1,
+                "questionnaire_answers": [],
+            },
+        )
+        return resp.json()["access_token"]
+
+    def test_delete_me_returns_200(self, auth_client):
+        token = self._register(auth_client)
+        resp = auth_client.delete(
+            "/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"}
+        )
+        assert resp.status_code == 200
+        assert "eliminada" in resp.json()["message"].lower()
+
+    def test_delete_me_invalidates_token(self, auth_client):
+        token = self._register(auth_client, email="ghost@example.com")
+        auth_client.delete(
+            "/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"}
+        )
+        resp = auth_client.get(
+            "/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"}
+        )
+        assert resp.status_code == 401
+
+    def test_delete_me_requires_auth(self, auth_client):
+        resp = auth_client.delete("/api/v1/auth/me")
+        assert resp.status_code == 401
