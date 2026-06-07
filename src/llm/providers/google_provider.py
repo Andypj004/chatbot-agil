@@ -21,10 +21,10 @@ def _normalize_model_name(model_name: str) -> str:
 
 class GoogleProvider(BaseLLMProvider):
     """Google LLM provider using Gemini models"""
-    
+
     def get_llm(self) -> BaseChatModel:
         """Get Google Gemini chat model instance
-        
+
         Returns:
             Configured ChatGoogleGenerativeAI instance
         """
@@ -36,7 +36,7 @@ class GoogleProvider(BaseLLMProvider):
                 model=resolved_model,
                 temperature=self.temperature,
                 max_output_tokens=self.max_tokens,
-                **self.kwargs
+                **self.kwargs,
             )
             self.model_name = resolved_model
         return self._llm
@@ -47,7 +47,9 @@ class GoogleProvider(BaseLLMProvider):
         available_models = self._list_generate_content_models()
 
         if not available_models:
-            logger.warning("Could not determine available Google models; using requested model as-is")
+            logger.warning(
+                "Could not determine available Google models; using requested model as-is"
+            )
             return normalized_requested
 
         if normalized_requested in available_models:
@@ -78,18 +80,18 @@ class GoogleProvider(BaseLLMProvider):
                 models.append(_normalize_model_name(name))
 
         return sorted(set(models))
-    
+
     def get_provider_name(self) -> str:
         """Get provider name
-        
+
         Returns:
             Provider name string
         """
         return "google"
-    
+
     def get_default_model(self) -> str:
         """Get default model for Google
-        
+
         Returns:
             Default model name
         """

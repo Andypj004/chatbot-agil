@@ -30,9 +30,7 @@ def _provider_cache_key(
     max_tokens: Optional[int],
 ) -> tuple[Optional[str], Optional[str], Optional[float], Optional[int]]:
     normalized_provider = (
-        LLMFactory.normalize_provider_name(provider_name)
-        if provider_name
-        else None
+        LLMFactory.normalize_provider_name(provider_name) if provider_name else None
     )
     return normalized_provider, model_name, temperature, max_tokens
 
@@ -153,19 +151,19 @@ def get_llm_provider(
     provider_name: Optional[str] = None,
     model_name: Optional[str] = None,
     temperature: Optional[float] = None,
-    max_tokens: Optional[int] = None
+    max_tokens: Optional[int] = None,
 ) -> BaseLLMProvider:
     """Get LLM provider instance
-    
+
     Args:
         provider_name: LLM provider name
         model_name: Model name
         temperature: Sampling temperature
         max_tokens: Maximum tokens
-        
+
     Returns:
         Configured LLM provider
-        
+
     Raises:
         HTTPException: If provider creation fails
     """
@@ -179,15 +177,12 @@ def get_llm_provider(
         return _create_cached_llm_provider(*cache_key)
     except ValueError as e:
         logger.error(f"Invalid LLM provider configuration: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
         logger.error(f"Failed to create LLM provider: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to initialize LLM provider: {str(e)}"
+            detail=f"Failed to initialize LLM provider: {str(e)}",
         )
 
 
@@ -199,11 +194,11 @@ def get_rag_retriever(
     max_tokens: Optional[int] = None,
 ) -> RAGRetriever:
     """Get RAG retriever instance
-    
+
     Args:
         vector_store: Vector store instance
         provider_name: LLM provider name
-        
+
     Returns:
         Configured RAG retriever
     """
@@ -223,10 +218,10 @@ def get_chatbot_agent(
     model_name: Optional[str] = None,
     temperature: Optional[float] = None,
     max_tokens: Optional[int] = None,
-    use_rag: bool = True
+    use_rag: bool = True,
 ) -> ChatbotAgent:
     """Get chatbot agent instance
-    
+
     Args:
         llm_provider: LLM provider instance
         use_rag: Whether to enable RAG
@@ -241,7 +236,7 @@ def get_chatbot_agent(
             temperature=temperature,
             max_tokens=max_tokens,
         )
-    
+
     # Get RAG retriever if enabled
     rag_retriever = None
     if use_rag:
@@ -249,14 +244,16 @@ def get_chatbot_agent(
             rag_retriever = get_rag_retriever(
                 provider_name=provider_name or llm_provider.get_provider_name(),
                 model_name=model_name or llm_provider.model_name,
-                temperature=temperature if temperature is not None else llm_provider.temperature,
-                max_tokens=max_tokens if max_tokens is not None else llm_provider.max_tokens,
+                temperature=(
+                    temperature if temperature is not None else llm_provider.temperature
+                ),
+                max_tokens=(
+                    max_tokens if max_tokens is not None else llm_provider.max_tokens
+                ),
             )
         except Exception as e:
             logger.warning(f"Failed to initialize RAG retriever: {e}")
-    
+
     return ChatbotAgent(
-        llm_provider=llm_provider,
-        rag_retriever=rag_retriever,
-        enable_memory=False
+        llm_provider=llm_provider, rag_retriever=rag_retriever, enable_memory=False
     )

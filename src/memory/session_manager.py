@@ -1,4 +1,5 @@
 """Persistent session manager for conversation history using SQLite."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -73,8 +74,7 @@ class SessionManager:
                 """
             )
             session_columns = {
-                row[1]
-                for row in conn.execute("PRAGMA table_info(sessions)").fetchall()
+                row[1] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()
             }
             if "user_id" not in session_columns:
                 conn.execute("ALTER TABLE sessions ADD COLUMN user_id TEXT")
@@ -100,21 +100,28 @@ class SessionManager:
                 """
             )
             user_columns = {
-                row[1]
-                for row in conn.execute("PRAGMA table_info(users)").fetchall()
+                row[1] for row in conn.execute("PRAGMA table_info(users)").fetchall()
             }
             if "full_name" not in user_columns:
                 conn.execute("ALTER TABLE users ADD COLUMN full_name TEXT")
             if "account_type" not in user_columns:
                 conn.execute("ALTER TABLE users ADD COLUMN account_type TEXT")
             if "knowledge_level" not in user_columns:
-                conn.execute("ALTER TABLE users ADD COLUMN knowledge_level INTEGER NOT NULL DEFAULT 1")
+                conn.execute(
+                    "ALTER TABLE users ADD COLUMN knowledge_level INTEGER NOT NULL DEFAULT 1"
+                )
             if "agile_adoption_level" not in user_columns:
-                conn.execute("ALTER TABLE users ADD COLUMN agile_adoption_level INTEGER NOT NULL DEFAULT 1")
+                conn.execute(
+                    "ALTER TABLE users ADD COLUMN agile_adoption_level INTEGER NOT NULL DEFAULT 1"
+                )
             if "agile_adoption_label" not in user_columns:
-                conn.execute("ALTER TABLE users ADD COLUMN agile_adoption_label TEXT NOT NULL DEFAULT 'Ninguno'")
+                conn.execute(
+                    "ALTER TABLE users ADD COLUMN agile_adoption_label TEXT NOT NULL DEFAULT 'Ninguno'"
+                )
             if "questionnaire_answers_json" not in user_columns:
-                conn.execute("ALTER TABLE users ADD COLUMN questionnaire_answers_json TEXT NOT NULL DEFAULT '[]'")
+                conn.execute(
+                    "ALTER TABLE users ADD COLUMN questionnaire_answers_json TEXT NOT NULL DEFAULT '[]'"
+                )
             if "password_hash" not in user_columns:
                 conn.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
             if "password_salt" not in user_columns:
@@ -144,8 +151,7 @@ class SessionManager:
                 """
             )
             existing_columns = {
-                row[1]
-                for row in conn.execute("PRAGMA table_info(messages)").fetchall()
+                row[1] for row in conn.execute("PRAGMA table_info(messages)").fetchall()
             }
             if "attachments_json" not in existing_columns:
                 conn.execute("ALTER TABLE messages ADD COLUMN attachments_json TEXT")
@@ -275,8 +281,11 @@ class SessionManager:
             "account_type": row["account_type"],
             "knowledge_level": knowledge_level,
             "agile_adoption_level": agile_level,
-            "agile_adoption_label": row["agile_adoption_label"] or agile_level_label(agile_level),
-            "questionnaire_answers": json.loads(row["questionnaire_answers_json"] or "[]"),
+            "agile_adoption_label": row["agile_adoption_label"]
+            or agile_level_label(agile_level),
+            "questionnaire_answers": json.loads(
+                row["questionnaire_answers_json"] or "[]"
+            ),
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
             "last_login_at": row["last_login_at"],
@@ -382,7 +391,9 @@ class SessionManager:
                     "created_at": row["created_at"],
                     "provider": row["provider"],
                     "model": row["model"],
-                    "used_rag": bool(row["used_rag"]) if row["used_rag"] is not None else None,
+                    "used_rag": (
+                        bool(row["used_rag"]) if row["used_rag"] is not None else None
+                    ),
                     "sources": json.loads(row["sources_json"] or "[]"),
                     "attachments": json.loads(row["attachments_json"] or "[]"),
                 }
@@ -451,7 +462,9 @@ class SessionManager:
             for row in rows
         ]
 
-    def get_session(self, session_id: str, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    def get_session(
+        self, session_id: str, user_id: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
         with self._connect() as conn:
             row = conn.execute(
                 """
@@ -503,7 +516,9 @@ class SessionManager:
             "updated_at": row["updated_at"],
         }
 
-    def upsert_form_state(self, session_id: str, form_id: str, state: Dict[str, Any]) -> None:
+    def upsert_form_state(
+        self, session_id: str, form_id: str, state: Dict[str, Any]
+    ) -> None:
         now = self._now_iso()
         with self._lock:
             with self._connect() as conn:
@@ -653,7 +668,9 @@ class SessionManager:
         ]
         return json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
 
-    def record_source_citations(self, session_id: str, citations: List[Dict[str, Any]]) -> List[str]:
+    def record_source_citations(
+        self, session_id: str, citations: List[Dict[str, Any]]
+    ) -> List[str]:
         now = self._now_iso()
         unique_citations: list[tuple[str, Dict[str, Any]]] = []
         seen_keys: set[str] = set()
@@ -681,7 +698,11 @@ class SessionManager:
                 for key, citation in unique_citations:
                     page = citation.get("page")
                     try:
-                        page_value = int(page) if page is not None and str(page).isdigit() else None
+                        page_value = (
+                            int(page)
+                            if page is not None and str(page).isdigit()
+                            else None
+                        )
                     except Exception:
                         page_value = None
 
@@ -732,7 +753,9 @@ class SessionManager:
 
         return [key for key, _citation in unique_citations]
 
-    def get_recent_source_citation_keys(self, session_id: str, limit: int = 25) -> List[str]:
+    def get_recent_source_citation_keys(
+        self, session_id: str, limit: int = 25
+    ) -> List[str]:
         with self._connect() as conn:
             rows = conn.execute(
                 """
@@ -760,7 +783,9 @@ class SessionManager:
             ).fetchone()
         return row is not None
 
-    def get_session_concepts(self, session_id: str, limit: int = 10) -> List[Dict[str, Any]]:
+    def get_session_concepts(
+        self, session_id: str, limit: int = 10
+    ) -> List[Dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
                 """
@@ -786,8 +811,12 @@ class SessionManager:
     def clear_session(self, session_id: str) -> None:
         with self._lock:
             with self._connect() as conn:
-                conn.execute("DELETE FROM session_documents WHERE session_id = ?", (session_id,))
-                conn.execute("DELETE FROM session_citations WHERE session_id = ?", (session_id,))
+                conn.execute(
+                    "DELETE FROM session_documents WHERE session_id = ?", (session_id,)
+                )
+                conn.execute(
+                    "DELETE FROM session_citations WHERE session_id = ?", (session_id,)
+                )
                 conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
                 conn.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
                 conn.commit()
@@ -825,7 +854,15 @@ class SessionManager:
                         file_hash = excluded.file_hash,
                         uploaded_at = excluded.uploaded_at
                     """,
-                    (session_id, document_id, filename, source, file_type, file_hash, now),
+                    (
+                        session_id,
+                        document_id,
+                        filename,
+                        source,
+                        file_type,
+                        file_hash,
+                        now,
+                    ),
                 )
                 conn.execute(
                     "UPDATE sessions SET updated_at = ? WHERE session_id = ?",
@@ -859,7 +896,9 @@ class SessionManager:
             for row in rows
         ]
 
-    def get_session_documents_by_ids(self, session_id: str, document_ids: List[str]) -> List[Dict[str, Any]]:
+    def get_session_documents_by_ids(
+        self, session_id: str, document_ids: List[str]
+    ) -> List[Dict[str, Any]]:
         if not document_ids:
             return self.list_session_documents(session_id)
 
@@ -930,7 +969,11 @@ class SessionManager:
 
         password_hash, password_salt = hash_password(password)
         assessment = assess_agile_level(questionnaire_answers or [])
-        agile_level = assessment["level"] if questionnaire_answers else normalize_agile_level(knowledge_level)
+        agile_level = (
+            assessment["level"]
+            if questionnaire_answers
+            else normalize_agile_level(knowledge_level)
+        )
         now = self._now_iso()
         user_id = str(uuid4())
 
@@ -1066,7 +1109,11 @@ class SessionManager:
                     WHERE user_id = ?
                     """,
                     (
-                        normalize_agile_level(knowledge_level) if knowledge_level is not None else None,
+                        (
+                            normalize_agile_level(knowledge_level)
+                            if knowledge_level is not None
+                            else None
+                        ),
                         assessment["level"],
                         assessment["label"],
                         json.dumps(questionnaire_answers or []),
@@ -1090,5 +1137,7 @@ class SessionManager:
         parts.append(
             f"nivel declarado: {profile['knowledge_level']} ({agile_level_label(profile['knowledge_level'])})"
         )
-        parts.append(f"nivel estimado: {profile['agile_adoption_level']} ({profile['agile_adoption_label']})")
+        parts.append(
+            f"nivel estimado: {profile['agile_adoption_level']} ({profile['agile_adoption_label']})"
+        )
         return "; ".join(parts)

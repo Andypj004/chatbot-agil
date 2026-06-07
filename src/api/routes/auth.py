@@ -3,7 +3,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from src.api.dependencies import get_current_user, get_session_manager
-from src.api.models import AuthResponse, UserLoginRequest, UserProfileResponse, UserRegistrationRequest
+from src.api.models import (
+    AuthResponse,
+    UserLoginRequest,
+    UserProfileResponse,
+    UserRegistrationRequest,
+)
 from src.memory.session_manager import SessionManager
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -31,7 +36,9 @@ def register_user(
 ):
     """Create a user account and return an auth token."""
     try:
-        questionnaire_answers = [item.model_dump() for item in request.questionnaire_answers]
+        questionnaire_answers = [
+            item.model_dump() for item in request.questionnaire_answers
+        ]
         profile = session_manager.create_user(
             email=request.email,
             password=request.password,
@@ -46,7 +53,9 @@ def register_user(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 
-@router.post("/login", response_model=AuthResponse, summary="Log in with email and password")
+@router.post(
+    "/login", response_model=AuthResponse, summary="Log in with email and password"
+)
 def login_user(
     request: UserLoginRequest,
     session_manager: SessionManager = Depends(get_session_manager),
@@ -63,7 +72,11 @@ def login_user(
     return AuthResponse(access_token=token, user=_profile_response(profile))
 
 
-@router.get("/me", response_model=UserProfileResponse, summary="Get the authenticated user profile")
+@router.get(
+    "/me",
+    response_model=UserProfileResponse,
+    summary="Get the authenticated user profile",
+)
 def get_me(current_user=Depends(get_current_user)):
     """Return the current authenticated user."""
     return _profile_response(current_user)

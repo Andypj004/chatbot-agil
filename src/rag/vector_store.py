@@ -45,21 +45,23 @@ class VectorStore:
         if os.access(persist_directory, os.W_OK):
             return persist_directory
 
-        fallback_path = persist_directory.with_name(f"{persist_directory.name}.writable")
+        fallback_path = persist_directory.with_name(
+            f"{persist_directory.name}.writable"
+        )
         try:
             shutil.copytree(persist_directory, fallback_path, dirs_exist_ok=True)
             return fallback_path
         except Exception:
             return persist_directory
-    
+
     def __init__(
         self,
         collection_name: str = "chatbot_documents",
         persist_directory: Optional[str] = None,
-        embedding_model: Optional[str] = None
+        embedding_model: Optional[str] = None,
     ):
         """Initialize vector store
-        
+
         Args:
             collection_name: Name of the collection to use
             persist_directory: Directory to persist the database
@@ -73,7 +75,7 @@ class VectorStore:
         if self.collection_name == "chatbot_documents":
             model_slug = self._slugify_model_name(self.embedding_model_name)
             self.collection_name = f"chatbot_documents_{model_slug}"
-        
+
         # Create persist directory if it doesn't exist
         persist_path = Path(self.persist_directory)
         persist_path.mkdir(parents=True, exist_ok=True)
@@ -83,35 +85,37 @@ class VectorStore:
         from chromadb.config import Settings as ChromaSettings
         from langchain_community.embeddings import HuggingFaceEmbeddings
         from langchain_community.vectorstores import Chroma
-        
+
         # Initialize embeddings
         logger.info(f"Loading embedding model: {self.embedding_model_name}")
         try:
             self.embeddings = HuggingFaceEmbeddings(
                 model_name=self.embedding_model_name,
                 model_kwargs={"device": "cpu"},
-                encode_kwargs={"normalize_embeddings": True}
+                encode_kwargs={"normalize_embeddings": True},
             )
         except Exception as e:
-            logger.error(f"Failed to initialize embeddings model '{self.embedding_model_name}': {e}")
+            logger.error(
+                f"Failed to initialize embeddings model '{self.embedding_model_name}': {e}"
+            )
             raise RuntimeError(
                 "Embedding initialization failed. Check torch/transformers compatibility "
                 "and rebuild the Docker image with updated dependencies."
             ) from e
-        
+
         # Initialize ChromaDB client
         self.client = chromadb.PersistentClient(
             path=self.persist_directory,
-            settings=ChromaSettings(anonymized_telemetry=False)
+            settings=ChromaSettings(anonymized_telemetry=False),
         )
-        
+
         # Initialize or get collection
         self.vectorstore = Chroma(
             client=self.client,
             collection_name=self.collection_name,
             embedding_function=self.embeddings,
         )
-        
+
         logger.info(f"Vector store initialized with collection: {self.collection_name}")
 
     def _rebuild_vectorstore_wrapper(self) -> None:
@@ -123,98 +127,84 @@ class VectorStore:
             collection_name=self.collection_name,
             embedding_function=self.embeddings,
         )
-    
+
     def add_documents(
-        self,
-        documents: List[Document],
-        ids: Optional[List[str]] = None
+        self, documents: List[Document], ids: Optional[List[str]] = None
     ) -> List[str]:
         """Add documents to the vector store
-        
+
         Args:
             documents: List of Document objects to add
             ids: Optional list of IDs for the documents
-            
+
         Returns:
             List of document IDs
         """
         logger.info(f"Adding {len(documents)} documents to vector store")
-        
+
         if ids:
             document_ids = self.vectorstore.add_documents(documents, ids=ids)
         else:
             document_ids = self.vectorstore.add_documents(documents)
 
         self._collection_count_cache = None
-        
+
         logger.info(f"Successfully added {len(document_ids)} documents")
         return document_ids
-    
+
     def similarity_search(
-        self,
-        query: str,
-        k: int = 5,
-        filter: Optional[Dict[str, Any]] = None
+        self, query: str, k: int = 5, filter: Optional[Dict[str, Any]] = None
     ) -> List[Document]:
         """Search for similar documents
-        
+
         Args:
             query: Query string
             k: Number of results to return
             filter: Optional metadata filter
-            
+
         Returns:
             List of similar documents
         """
         logger.info(f"Searching for similar documents: query='{query}', k={k}")
-        
-        results = self.vectorstore.similarity_search(
-            query=query,
-            k=k,
-            filter=filter
-        )
-        
+
+        results = self.vectorstore.similarity_search(query=query, k=k, filter=filter)
+
         logger.info(f"Found {len(results)} similar documents")
         return results
-    
+
     def similarity_search_with_score(
-        self,
-        query: str,
-        k: int = 5,
-        filter: Optional[Dict[str, Any]] = None
+        self, query: str, k: int = 5, filter: Optional[Dict[str, Any]] = None
     ) -> List[tuple[Document, float]]:
         """Search for similar documents with relevance scores
-        
+
         Args:
             query: Query string
             k: Number of results to return
             filter: Optional metadata filter
-            
+
         Returns:
             List of tuples (document, score)
         """
         logger.info(f"Searching with scores: query='{query}', k={k}")
-        
+
         results = self.vectorstore.similarity_search_with_score(
-            query=query,
-            k=k,
-            filter=filter
+            query=query, k=k, filter=filter
         )
-        
+
         logger.info(f"Found {len(results)} documents with scores")
         return results
-    
+
     def delete_documents(self, ids: List[str]) -> bool:
         """Delete documents by IDs
-        
+
         Args:
             ids: List of document IDs to delete
-            
+
         Returns:
             True if successful
         """
         logger.info(f"Deleting {len(ids)} documents")
-        
+
         try:
             self.vectorstore.delete(ids=ids)
             self._collection_count_cache = None
@@ -223,10 +213,10 @@ class VectorStore:
         except Exception as e:
             logger.error(f"Error deleting documents: {e}")
             return False
-    
+
     def get_collection_count(self, force_refresh: bool = False) -> int:
         """Get the number of documents in the collection
-        
+
         Returns:
             Number of documents
         """
@@ -257,11 +247,17 @@ class VectorStore:
             logger.error(f"Error counting filtered documents: {e}")
             return 0
 
-    def list_indexed_documents(self, metadata_filter: Optional[Dict[str, Any]] = None) -> List[Dict[str, str]]:
+    def list_indexed_documents(
+        self, metadata_filter: Optional[Dict[str, Any]] = None
+    ) -> List[Dict[str, str]]:
         """Return unique document metadata entries stored in the collection."""
         try:
             collection = self.client.get_collection(self.collection_name)
-            count = collection.count() if metadata_filter is None else self.count_documents(metadata_filter)
+            count = (
+                collection.count()
+                if metadata_filter is None
+                else self.count_documents(metadata_filter)
+            )
             if count == 0:
                 return []
 
@@ -309,7 +305,9 @@ class VectorStore:
                     "session_id": item.get("session_id"),
                 }
 
-            return sorted(unique_documents.values(), key=lambda doc: doc["filename"].lower())
+            return sorted(
+                unique_documents.values(), key=lambda doc: doc["filename"].lower()
+            )
         except Exception as e:
             logger.error(f"Error listing indexed documents: {e}")
             return []
@@ -325,15 +323,15 @@ class VectorStore:
         except Exception as e:
             logger.error(f"Error deleting documents by metadata: {e}")
             return False
-    
+
     def clear_collection(self) -> bool:
         """Clear all documents from the collection
-        
+
         Returns:
             True if successful
         """
         logger.warning(f"Clearing collection: {self.collection_name}")
-        
+
         try:
             self.client.delete_collection(self.collection_name)
             self._rebuild_vectorstore_wrapper()

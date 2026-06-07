@@ -9,7 +9,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from src.api.dependencies import get_llm_provider, get_vector_store, get_document_processor
+from src.api.dependencies import (
+    get_llm_provider,
+    get_vector_store,
+    get_document_processor,
+)
 from src.api.routes import auth, chat, documents, config, health, sessions, forms, debug
 from src.core.config import settings
 from src.core.logger import get_logger
@@ -43,7 +47,9 @@ def _reindex_global_uploads(vector_store) -> int:
             continue
 
         try:
-            chunks = doc_processor.process_file(file_path=str(file_path), scope="global_rag", session_id=None)
+            chunks = doc_processor.process_file(
+                file_path=str(file_path), scope="global_rag", session_id=None
+            )
             if not chunks:
                 continue
 
@@ -102,6 +108,7 @@ async def lifespan(_: FastAPI):
     finally:
         logger.info("Shutting down Agile Chatbot API")
 
+
 # Create FastAPI application
 app = FastAPI(
     title="Agile Chatbot API",
@@ -146,7 +153,7 @@ async def root():
         "version": __version__,
         "docs": "/docs",
         "health": "/api/v1/health",
-        "frontend": "/app"
+        "frontend": "/app",
     }
 
 
@@ -156,18 +163,18 @@ async def frontend_app():
     if not INDEX_FILE.exists():
         return {
             "message": "Frontend not found",
-            "hint": "Ensure src/frontend/templates/index.html exists"
+            "hint": "Ensure src/frontend/templates/index.html exists",
         }
     return FileResponse(INDEX_FILE)
 
 
 if __name__ == "__main__":
     import uvicorn
-    
+
     uvicorn.run(
         "src.main:app",
         host=settings.api_host,
         port=settings.api_port,
         reload=settings.api_reload,
-        log_level=settings.log_level.lower()
+        log_level=settings.log_level.lower(),
     )

@@ -11,7 +11,7 @@ def setup_logger():
     """Configure application logger"""
     # Remove default handler
     logger.remove()
-    
+
     # Add console handler
     logger.add(
         sys.stderr,
@@ -19,11 +19,11 @@ def setup_logger():
         level=settings.log_level,
         colorize=True,
     )
-    
+
     # Create logs directory if it doesn't exist
     log_dir = Path("logs")
     log_dir.mkdir(exist_ok=True)
-    
+
     # Add file handler
     try:
         logger.add(
@@ -35,7 +35,7 @@ def setup_logger():
         )
     except OSError as exc:
         logger.warning(f"File logging disabled: {exc}")
-    
+
     return logger
 
 

@@ -22,9 +22,14 @@ class AnswerRequest(BaseModel):
 
 
 @router.post("/start")
-def start_form(req: StartFormRequest, session_manager: SessionManager = Depends(get_session_manager)):
+def start_form(
+    req: StartFormRequest,
+    session_manager: SessionManager = Depends(get_session_manager),
+):
     try:
-        q = form_manager.start_form(req.form_id, req.session_id, session_manager=session_manager)
+        q = form_manager.start_form(
+            req.form_id, req.session_id, session_manager=session_manager
+        )
     except KeyError:
         raise HTTPException(status_code=404, detail="form not found")
     return {"ok": True, "question": q}
@@ -37,7 +42,13 @@ def answer_form(
     current_user=Depends(get_current_user_optional),
 ):
     try:
-        res = form_manager.answer(req.form_id, req.session_id, req.name, req.value, session_manager=session_manager)
+        res = form_manager.answer(
+            req.form_id,
+            req.session_id,
+            req.name,
+            req.value,
+            session_manager=session_manager,
+        )
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -50,7 +61,10 @@ def answer_form(
         session_manager.update_user_agile_profile(
             user_id=current_user["user_id"],
             questionnaire_answers=[
-                {"question_number": index + 1, "answer": answers.get(f"question_{index + 1}")}
+                {
+                    "question_number": index + 1,
+                    "answer": answers.get(f"question_{index + 1}"),
+                }
                 for index in range(5)
             ],
             knowledge_level=current_user.get("knowledge_level"),

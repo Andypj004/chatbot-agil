@@ -4,7 +4,11 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query, status, Depends
 
-from src.api.dependencies import get_session_manager, get_vector_store, get_current_user_optional
+from src.api.dependencies import (
+    get_session_manager,
+    get_vector_store,
+    get_current_user_optional,
+)
 from src.api.models import (
     SessionHistoryResponse,
     SessionListResponse,
@@ -20,7 +24,9 @@ logger = get_logger()
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 
-@router.get("", response_model=SessionListResponse, summary="List conversation sessions")
+@router.get(
+    "", response_model=SessionListResponse, summary="List conversation sessions"
+)
 async def list_sessions(
     q: str | None = Query(default=None, description="Optional text query"),
     limit: int = Query(default=settings.conversation_list_limit, ge=1, le=200),
@@ -28,14 +34,22 @@ async def list_sessions(
 ):
     """List conversation sessions ordered by most recent activity."""
     manager = get_session_manager()
-    sessions = manager.list_sessions(limit=limit, query=q, user_id=current_user.get("user_id") if current_user else None)
+    sessions = manager.list_sessions(
+        limit=limit,
+        query=q,
+        user_id=current_user.get("user_id") if current_user else None,
+    )
     return SessionListResponse(
         total_sessions=len(sessions),
         sessions=[SessionSummary(**item) for item in sessions],
     )
 
 
-@router.get("/{session_id}/history", response_model=SessionHistoryResponse, summary="Get session history")
+@router.get(
+    "/{session_id}/history",
+    response_model=SessionHistoryResponse,
+    summary="Get session history",
+)
 async def get_session_history(
     session_id: str,
     offset: int = Query(default=0, ge=0),
@@ -47,7 +61,9 @@ async def get_session_history(
     owner_id = current_user.get("user_id") if current_user else None
     session = manager.get_session_record(session_id)
     if session is None or session.get("user_id") not in (None, owner_id):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
+        )
 
     messages = manager.get_messages(session_id=session_id, limit=limit, offset=offset)
     total = manager.get_message_count(session_id)
@@ -73,7 +89,9 @@ async def delete_session(
     owner_id = current_user.get("user_id") if current_user else None
     session = manager.get_session_record(session_id)
     if session is None or session.get("user_id") not in (None, owner_id):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
+        )
 
     vector_store.delete_by_metadata({"scope": "session_chat", "session_id": session_id})
 
@@ -105,7 +123,10 @@ async def update_session_title(
     owner_id = current_user.get("user_id") if current_user else None
     session = manager.get_session_record(session_id)
     if session is None or session.get("user_id") not in (None, owner_id):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Session '{session_id}' not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Session '{session_id}' not found",
+        )
 
     if not payload.title.strip():
         raise HTTPException(

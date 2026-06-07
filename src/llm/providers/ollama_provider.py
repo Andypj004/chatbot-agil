@@ -34,7 +34,11 @@ def _list_ollama_models(base_url: str) -> list[str]:
     except Exception:
         return []
 
-    return [model.get("name", "") for model in payload.get("models", []) if model.get("name")]
+    return [
+        model.get("name", "")
+        for model in payload.get("models", [])
+        if model.get("name")
+    ]
 
 
 def _candidate_base_urls(configured_url: str) -> list:
