@@ -134,6 +134,10 @@ class SessionManager:
                 conn.execute("ALTER TABLE users ADD COLUMN updated_at TEXT")
             if "last_login_at" not in user_columns:
                 conn.execute("ALTER TABLE users ADD COLUMN last_login_at TEXT")
+            if "is_admin" not in user_columns:
+                conn.execute(
+                    "ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0"
+                )
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS messages (
@@ -286,6 +290,7 @@ class SessionManager:
             "questionnaire_answers": json.loads(
                 row["questionnaire_answers_json"] or "[]"
             ),
+            "is_admin": bool(row["is_admin"]),
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
             "last_login_at": row["last_login_at"],
@@ -959,6 +964,7 @@ class SessionManager:
         account_type: str,
         knowledge_level: int,
         questionnaire_answers: Optional[List[Dict[str, Any]]] = None,
+        is_admin: bool = False,
     ) -> Dict[str, Any]:
         normalized_email = self._sanitize_email(email)
         if not normalized_email:
@@ -985,8 +991,8 @@ class SessionManager:
                         user_id, email, full_name, account_type, knowledge_level,
                         agile_adoption_level, agile_adoption_label,
                         questionnaire_answers_json, password_hash, password_salt,
-                        auth_token_hash, created_at, updated_at, last_login_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL)
+                        auth_token_hash, is_admin, created_at, updated_at, last_login_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, NULL)
                     """,
                     (
                         user_id,
@@ -999,6 +1005,7 @@ class SessionManager:
                         json.dumps(questionnaire_answers or []),
                         password_hash,
                         password_salt,
+                        1 if is_admin else 0,
                         now,
                         now,
                     ),

@@ -66,6 +66,13 @@ class Settings(BaseSettings):
         default=False, alias="WARMUP_DEFAULT_PROVIDER_ON_STARTUP"
     )
 
+    # Admin access
+    admin_emails: str = Field(default="", alias="ADMIN_EMAILS")
+
+    @property
+    def admin_email_list(self) -> List[str]:
+        return [e.strip().lower() for e in self.admin_emails.split(",") if e.strip()]
+
     def get_api_key(self, provider: str) -> Optional[str]:
         """Get API key for a specific LLM provider"""
         key_mapping = {
