@@ -148,6 +148,18 @@ class TestAdminDeleteUser:
         resp = admin_client.delete(f"/api/v1/admin/users/{admin_id}")
         assert resp.status_code == 401
 
+    def test_admin_cannot_delete_self_via_admin_route(self, admin_client):
+        admin_data = _register(admin_client, ADMIN_EMAIL, ADMIN_PASSWORD, "Profesor")
+        admin_token = admin_data["access_token"]
+        admin_id = admin_data["user"]["user_id"]
+
+        resp = admin_client.delete(
+            f"/api/v1/admin/users/{admin_id}",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert resp.status_code == 400
+        assert "propia cuenta" in resp.json()["detail"].lower()
+
     def test_deleted_user_token_is_invalidated(self, admin_client):
         admin_data = _register(admin_client, ADMIN_EMAIL, ADMIN_PASSWORD, "Profesor")
         regular_data = _register(admin_client, REGULAR_EMAIL)

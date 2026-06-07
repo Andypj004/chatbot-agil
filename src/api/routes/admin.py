@@ -51,6 +51,11 @@ def admin_delete_user(
     session_manager: SessionManager = Depends(get_session_manager),
 ):
     """Permanently delete a user account and all their data."""
+    if user_id == _admin["user_id"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Un administrador no puede eliminar su propia cuenta desde este endpoint. Use DELETE /auth/me.",
+        )
     session_ids = session_manager.delete_user(user_id)
     if session_ids is None:
         raise HTTPException(
