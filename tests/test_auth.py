@@ -444,7 +444,6 @@ class TestIsAdminField:
             full_name="Regular User",
             account_type="Estudiante",
             knowledge_level=2,
-            is_admin=False,
         )
         assert profile["is_admin"] is False
 
@@ -470,3 +469,14 @@ class TestIsAdminField:
         )
         profile = sm.get_user_by_email("boss@test.com")
         assert profile["is_admin"] is True
+
+    def test_create_user_explicit_false_is_not_admin(self, sm):
+        profile = sm.create_user(
+            email="explicit_false@test.com",
+            password="password123",
+            full_name="Explicit False",
+            account_type="Estudiante",
+            knowledge_level=2,
+            is_admin=False,
+        )
+        assert profile["is_admin"] is False
