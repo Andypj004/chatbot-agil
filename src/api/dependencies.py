@@ -1,7 +1,7 @@
 """Dependency injection for FastAPI"""
 
 from functools import lru_cache
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 from fastapi import Depends, HTTPException, status, Header
 
@@ -145,6 +145,32 @@ def get_current_user(
             detail="Authentication required",
         )
     return current_user
+
+
+def get_current_admin(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Require the authenticated user to have admin privileges."""
+    if not current_user.get("is_admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Se requieren permisos de administrador",
+        )
+    return current_user
+
+
+def cleanup_user_sessions(session_ids: List[str]) -> None:
+    """Delete ChromaDB session-chat documents and disk uploads for the given sessions."""
+    from pathlib import Path
+
+    vector_store = get_vector_store()
+    for sid in session_ids:
+        vector_store.delete_by_metadata({"scope": "session_chat", "session_id": sid})
+        uploads_dir = Path(f"data/uploads/sessions/{sid}")
+        if uploads_dir.exists():
+            for file_path in uploads_dir.glob("*"):
+                if file_path.is_file() and not file_path.name.startswith("."):
+                    file_path.unlink(missing_ok=True)
 
 
 def get_llm_provider(
