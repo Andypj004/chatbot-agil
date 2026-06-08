@@ -14,7 +14,17 @@ from src.api.dependencies import (
     get_vector_store,
     get_document_processor,
 )
-from src.api.routes import admin, auth, chat, documents, config, health, sessions, forms, debug
+from src.api.routes import (
+    admin,
+    auth,
+    chat,
+    documents,
+    config,
+    health,
+    sessions,
+    forms,
+    debug,
+)
 from src.core.config import settings
 from src.core.logger import get_logger
 from src import __version__

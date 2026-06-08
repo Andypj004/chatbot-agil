@@ -1175,7 +1175,9 @@ class SessionManager:
                 "SELECT * FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?",
                 (limit, offset),
             ).fetchall()
-        return [r for r in (self._serialize_user_row(row) for row in rows) if r is not None]
+        return [
+            r for r in (self._serialize_user_row(row) for row in rows) if r is not None
+        ]
 
     def count_users(self) -> int:
         """Return the total number of registered users."""

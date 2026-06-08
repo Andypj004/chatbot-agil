@@ -42,9 +42,7 @@ def list_all_users(
     return UserListResponse(total=total, users=[_profile(u) for u in users])
 
 
-@router.delete(
-    "/users/{user_id}", summary="Delete any user account (admin)"
-)
+@router.delete("/users/{user_id}", summary="Delete any user account (admin)")
 def admin_delete_user(
     user_id: str,
     _admin=Depends(get_current_admin),
