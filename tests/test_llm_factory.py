@@ -63,12 +63,24 @@ def test_provider_defaults_exist_in_catalogs():
         assert default_model in provider_models
 
 
+def test_factory_prefers_settings_default_model_when_supported():
+    """The factory should honor the configured default model when it is valid for the provider."""
+    with patch("src.llm.factory.settings") as mock_settings:
+        mock_settings.default_model = "gpt-4o-mini"
+        mock_settings.temperature = 0.7
+        mock_settings.max_tokens = 2000
+
+        default_model = LLMFactory._get_default_model_for_provider("openai")
+
+        assert default_model == "gpt-4o-mini"
+
+
 def test_factory_rejects_invalid_model_for_provider():
     """Factory should reject provider/model combinations outside the catalog."""
-    with pytest.raises(ValueError, match="is not supported for provider 'anthropic'"):
+    with pytest.raises(ValueError, match="is not supported for provider 'openai'"):
         LLMFactory.create_provider(
-            provider_name="anthropic",
-            model_name="gpt-4-turbo-preview",
+            provider_name="openai",
+            model_name="not-a-real-model",
         )
 
 

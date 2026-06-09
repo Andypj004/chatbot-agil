@@ -45,10 +45,13 @@ def test_chunk_documents(doc_processor):
     assert all("chunk_id" in chunk.metadata for chunk in chunked)
 
 
-def test_unsupported_file_type(doc_processor):
+def test_unsupported_file_type(doc_processor, tmp_path):
     """Test loading unsupported file type"""
+    file_path = tmp_path / "test.xyz"
+    file_path.write_text("unsupported", encoding="utf-8")
+
     with pytest.raises(ValueError, match="Unsupported file type"):
-        doc_processor.load_document("test.xyz")
+        doc_processor.load_document(str(file_path))
 
 
 def test_file_not_found(doc_processor):
