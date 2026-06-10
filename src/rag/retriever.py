@@ -395,7 +395,7 @@ Respuesta:"""
         logger.info(f"Generating answer using {self.llm_provider.get_provider_name()}")
         result = llm.invoke(formatted_prompt)
         # BaseChatModel.invoke() returns AIMessage; BaseLLM.invoke() returns str.
-        response = result.content if hasattr(result, "content") else result
+        response = str(result.text) if hasattr(result, "text") else result
 
         result = {"answer": response.strip(), "num_sources": len(documents)}
 

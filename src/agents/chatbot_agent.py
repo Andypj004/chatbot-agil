@@ -89,7 +89,7 @@ class ChatbotAgent:
     def _invoke_llm(self, prompt: str) -> str:
         llm = self.llm_provider.get_llm()
         result = llm.invoke(prompt)
-        return result.content if hasattr(result, "content") else result
+        return str(result.text) if hasattr(result, "text") else result
 
     def _build_direct_prompt(
         self,
@@ -181,7 +181,7 @@ class ChatbotAgent:
         if hasattr(llm, "stream"):
             try:
                 for chunk in llm.stream(prompt):
-                    text = chunk.content if hasattr(chunk, "content") else str(chunk)
+                    text = str(chunk.text) if hasattr(chunk, "text") else str(chunk)
                     if text:
                         yield text
                 return
@@ -191,15 +191,35 @@ class ChatbotAgent:
                 )
 
         # Fallback for models/providers without native streaming.
-        full = self._generate_direct_response(
-            message,
-            conversation_messages,
-            rag_hint=rag_hint,
-            history_note=history_note,
-        )
+        try:
+            full = self._generate_direct_response(
+                message,
+                conversation_messages,
+                rag_hint=rag_hint,
+                history_note=history_note,
+            )
+        except Exception as exc:
+            logger.error(f"LLM invocation failed during stream fallback: {exc}")
+            yield f"I encountered an error: {self._format_llm_error(exc)}"
+            return
+
         for token in full.split(" "):
             if token:
                 yield f"{token} "
+
+    def _format_llm_error(self, exc: Exception) -> str:
+        """Translate a raw provider exception into a user-facing error message."""
+        error_message = str(exc)
+        if (
+            self.llm_provider.get_provider_name() == "google"
+            and "quota exceeded" in error_message.lower()
+        ):
+            return (
+                "Google Gemini quota exceeded for the selected model. "
+                "Choose another Google model in Config or switch provider "
+                "(e.g., deepseek/openai), then retry."
+            )
+        return error_message
 
     @staticmethod
     def _is_image_document(item: Dict[str, Any]) -> bool:
@@ -285,7 +305,7 @@ class ChatbotAgent:
             )
 
         result = llm.invoke([HumanMessage(content=content)])
-        return result.content if hasattr(result, "content") else str(result)
+        return str(result.text) if hasattr(result, "text") else str(result)
 
     @staticmethod
     def _extract_sources(raw_sources: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -602,16 +622,7 @@ class ChatbotAgent:
 
         except Exception as e:
             logger.error(f"Error processing chat message: {e}")
-            error_message = str(e)
-            if (
-                self.llm_provider.get_provider_name() == "google"
-                and "quota exceeded" in error_message.lower()
-            ):
-                error_message = (
-                    "Google Gemini quota exceeded for the selected model. "
-                    "Choose another Google model in Config or switch provider "
-                    "(e.g., deepseek/openai), then retry."
-                )
+            error_message = self._format_llm_error(e)
             return {
                 "response": f"I encountered an error: {error_message}",
                 "error": error_message,
