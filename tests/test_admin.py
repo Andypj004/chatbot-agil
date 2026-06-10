@@ -94,9 +94,7 @@ class TestAdminListUsers:
         resp = admin_client.get(
             "/api/v1/admin/users", headers={"Authorization": f"Bearer {admin_token}"}
         )
-        admin_user = next(
-            u for u in resp.json()["users"] if u["email"] == ADMIN_EMAIL
-        )
+        admin_user = next(u for u in resp.json()["users"] if u["email"] == ADMIN_EMAIL)
         assert admin_user["is_admin"] is True
 
 

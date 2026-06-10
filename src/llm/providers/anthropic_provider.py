@@ -5,7 +5,7 @@ try:
 except ImportError:
     # Compatibility path for older langchain-anthropic releases.
     from langchain_anthropic.chat_models import ChatAnthropic
-from langchain.chat_models.base import BaseChatModel
+from langchain_core.language_models.chat_models import BaseChatModel
 
 from src.llm.base import BaseLLMProvider
 from src.core.logger import get_logger

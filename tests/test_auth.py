@@ -71,37 +71,39 @@ def test_hash_token_different_inputs():
 
 
 def test_assess_agile_level_all_c_is_avanzado():
-    result = assess_agile_level([
-        {"question_number": i, "answer": "c"} for i in range(1, 6)
-    ])
+    result = assess_agile_level(
+        [{"question_number": i, "answer": "c"} for i in range(1, 6)]
+    )
     assert result["level"] == 4
     assert result["label"] == "Avanzado"
 
 
 def test_assess_agile_level_all_a_is_inicial():
-    result = assess_agile_level([
-        {"question_number": i, "answer": "a"} for i in range(1, 6)
-    ])
+    result = assess_agile_level(
+        [{"question_number": i, "answer": "a"} for i in range(1, 6)]
+    )
     assert result["level"] == 2
     assert result["label"] == "Inicial"
 
 
 def test_assess_agile_level_all_d_is_ninguno():
-    result = assess_agile_level([
-        {"question_number": i, "answer": "d"} for i in range(1, 6)
-    ])
+    result = assess_agile_level(
+        [{"question_number": i, "answer": "d"} for i in range(1, 6)]
+    )
     assert result["level"] == 1
     assert result["label"] == "Ninguno"
 
 
 def test_assess_agile_level_mixed_returns_average_level():
-    result = assess_agile_level([
-        {"question_number": 1, "answer": "c"},
-        {"question_number": 2, "answer": "b"},
-        {"question_number": 3, "answer": "b"},
-        {"question_number": 4, "answer": "a"},
-        {"question_number": 5, "answer": "a"},
-    ])
+    result = assess_agile_level(
+        [
+            {"question_number": 1, "answer": "c"},
+            {"question_number": 2, "answer": "b"},
+            {"question_number": 3, "answer": "b"},
+            {"question_number": 4, "answer": "a"},
+            {"question_number": 5, "answer": "a"},
+        ]
+    )
     assert 1 <= result["level"] <= 4
 
 
@@ -121,15 +123,25 @@ def test_assess_agile_level_accepts_plain_strings():
 
 
 def test_build_user_profile_context_includes_name():
-    user = {"full_name": "Ana García", "account_type": "Estudiante",
-            "knowledge_level": 2, "agile_adoption_level": 2, "agile_adoption_label": "Inicial"}
+    user = {
+        "full_name": "Ana García",
+        "account_type": "Estudiante",
+        "knowledge_level": 2,
+        "agile_adoption_level": 2,
+        "agile_adoption_label": "Inicial",
+    }
     block = build_user_profile_context(user)
     assert "Ana García" in block
 
 
 def test_build_user_profile_context_includes_account_type():
-    user = {"full_name": "Carlos", "account_type": "Profesor",
-            "knowledge_level": 4, "agile_adoption_level": 4, "agile_adoption_label": "Avanzado"}
+    user = {
+        "full_name": "Carlos",
+        "account_type": "Profesor",
+        "knowledge_level": 4,
+        "agile_adoption_level": 4,
+        "agile_adoption_label": "Avanzado",
+    }
     block = build_user_profile_context(user)
     assert "Profesor" in block
 
@@ -151,12 +163,11 @@ def test_build_user_profile_context_empty_dict_does_not_crash():
 @pytest.fixture
 def sm(tmp_path):
     from src.memory.session_manager import SessionManager
+
     return SessionManager(db_path=str(tmp_path / "test_auth.db"))
 
 
-SAMPLE_ANSWERS = [
-    {"question_number": i, "answer": "b"} for i in range(1, 6)
-]
+SAMPLE_ANSWERS = [{"question_number": i, "answer": "b"} for i in range(1, 6)]
 
 
 def _register(sm, email="test@example.com", password="pass1234", full_name="Test User"):
@@ -185,7 +196,9 @@ def test_create_user_duplicate_email_raises(sm):
 
 
 def test_create_user_email_is_case_insensitive(sm):
-    sm.create_user("Upper@Example.COM", "pass1234", "Alice", "Estudiante", 1, SAMPLE_ANSWERS)
+    sm.create_user(
+        "Upper@Example.COM", "pass1234", "Alice", "Estudiante", 1, SAMPLE_ANSWERS
+    )
     user = sm.get_user_by_email("upper@example.com")
     assert user is not None
 
@@ -301,8 +314,13 @@ def test_register_returns_token(auth_client):
 
 def test_register_computes_agile_level(auth_client):
     """All 'c' answers → level 4 (Avanzado)."""
-    payload = {**VALID_REGISTER, "email": "advanced@test.com",
-               "questionnaire_answers": [{"question_number": i, "answer": "c"} for i in range(1, 6)]}
+    payload = {
+        **VALID_REGISTER,
+        "email": "advanced@test.com",
+        "questionnaire_answers": [
+            {"question_number": i, "answer": "c"} for i in range(1, 6)
+        ],
+    }
     resp = auth_client.post("/api/v1/auth/register", json=payload)
     assert resp.status_code == 200
     assert resp.json()["user"]["agile_adoption_level"] == 4
@@ -321,9 +339,10 @@ def test_register_missing_fields_returns_422(auth_client):
 
 def test_login_success(auth_client):
     auth_client.post("/api/v1/auth/register", json=VALID_REGISTER)
-    resp = auth_client.post("/api/v1/auth/login", json={
-        "email": "student@test.com", "password": "password123"
-    })
+    resp = auth_client.post(
+        "/api/v1/auth/login",
+        json={"email": "student@test.com", "password": "password123"},
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert "access_token" in data
@@ -332,16 +351,17 @@ def test_login_success(auth_client):
 
 def test_login_wrong_password_returns_401(auth_client):
     auth_client.post("/api/v1/auth/register", json=VALID_REGISTER)
-    resp = auth_client.post("/api/v1/auth/login", json={
-        "email": "student@test.com", "password": "wrongpassword"
-    })
+    resp = auth_client.post(
+        "/api/v1/auth/login",
+        json={"email": "student@test.com", "password": "wrongpassword"},
+    )
     assert resp.status_code == 401
 
 
 def test_login_unknown_email_returns_401(auth_client):
-    resp = auth_client.post("/api/v1/auth/login", json={
-        "email": "ghost@test.com", "password": "anypass"
-    })
+    resp = auth_client.post(
+        "/api/v1/auth/login", json={"email": "ghost@test.com", "password": "anypass"}
+    )
     assert resp.status_code == 401
 
 
@@ -353,13 +373,17 @@ def test_me_without_token_returns_401(auth_client):
 def test_me_with_valid_token_returns_profile(auth_client):
     reg = auth_client.post("/api/v1/auth/register", json=VALID_REGISTER).json()
     token = reg["access_token"]
-    resp = auth_client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
+    resp = auth_client.get(
+        "/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"}
+    )
     assert resp.status_code == 200
     assert resp.json()["email"] == "student@test.com"
 
 
 def test_me_with_invalid_token_returns_401(auth_client):
-    resp = auth_client.get("/api/v1/auth/me", headers={"Authorization": "Bearer bogus-token"})
+    resp = auth_client.get(
+        "/api/v1/auth/me", headers={"Authorization": "Bearer bogus-token"}
+    )
     assert resp.status_code == 401
 
 
@@ -385,25 +409,38 @@ def test_sessions_filtered_by_token(auth_client):
     from unittest.mock import Mock, patch
 
     u1 = auth_client.post("/api/v1/auth/register", json=VALID_REGISTER).json()
-    u2_payload = {**VALID_REGISTER, "email": "other@test.com", "full_name": "Other User"}
+    u2_payload = {
+        **VALID_REGISTER,
+        "email": "other@test.com",
+        "full_name": "Other User",
+    }
     u2 = auth_client.post("/api/v1/auth/register", json=u2_payload).json()
 
     mock_agent = Mock()
     mock_agent.chat.return_value = {
-        "response": "ok", "provider": "openai", "model": "gpt-4", "used_rag": False, "sources": [],
+        "response": "ok",
+        "provider": "openai",
+        "model": "gpt-4",
+        "used_rag": False,
+        "sources": [],
     }
 
-    with patch("src.api.routes.chat.get_llm_provider", return_value=Mock()), \
-         patch("src.api.routes.chat.get_chatbot_agent", return_value=mock_agent):
+    with patch("src.api.routes.chat.get_llm_provider", return_value=Mock()), patch(
+        "src.api.routes.chat.get_chatbot_agent", return_value=mock_agent
+    ):
 
-        auth_client.post("/api/v1/chat",
-                         headers={"Authorization": f"Bearer {u1['access_token']}"},
-                         json={"message": "Hola", "use_rag": False, "session_id": "sess-u1"})
+        auth_client.post(
+            "/api/v1/chat",
+            headers={"Authorization": f"Bearer {u1['access_token']}"},
+            json={"message": "Hola", "use_rag": False, "session_id": "sess-u1"},
+        )
 
-    sessions_u1 = auth_client.get("/api/v1/sessions",
-                                   headers={"Authorization": f"Bearer {u1['access_token']}"}).json()
-    sessions_u2 = auth_client.get("/api/v1/sessions",
-                                   headers={"Authorization": f"Bearer {u2['access_token']}"}).json()
+    sessions_u1 = auth_client.get(
+        "/api/v1/sessions", headers={"Authorization": f"Bearer {u1['access_token']}"}
+    ).json()
+    sessions_u2 = auth_client.get(
+        "/api/v1/sessions", headers={"Authorization": f"Bearer {u2['access_token']}"}
+    ).json()
 
     assert any(s["session_id"] == "sess-u1" for s in sessions_u1["sessions"])
     assert all(s["session_id"] != "sess-u1" for s in sessions_u2["sessions"])

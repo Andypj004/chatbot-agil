@@ -4,7 +4,7 @@ from typing import List
 import httpx
 
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.chat_models.base import BaseChatModel
+from langchain_core.language_models.chat_models import BaseChatModel
 
 from src.llm.base import BaseLLMProvider
 from src.core.logger import get_logger

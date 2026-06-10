@@ -183,7 +183,7 @@ Los proveedores cloud envuelven `BaseChatModel` de LangChain; Ollama envuelve `B
 
 **`src/rag/vector_store.py` — `VectorStore`**
 
-- Usa `chromadb.PersistentClient` + `langchain_community.vectorstores.Chroma`.
+- Usa `chromadb.PersistentClient` + `langchain_chroma.Chroma`.
 - El nombre de colección incluye un slug del modelo de embedding para evitar colisiones:
   `chatbot_documents_paraphrase_multilingual_minilm_l12_v2`.
 - Patrón writable-fallback: si `chroma_db/` no tiene permisos de escritura (Docker → host), copia a `chroma_db.writable/`.
@@ -738,21 +738,27 @@ El sistema puntúa cada fuente contra el texto generado (overlap de tokens + fra
 
 | Tecnología | Versión | Rol |
 |---|---|---|
-| Python | 3.11 | Runtime |
-| FastAPI | 0.109 | Framework HTTP |
-| Uvicorn | 0.27 | Servidor ASGI |
-| Pydantic | 2.5.3 | Validación y modelos |
-| pydantic-settings | 2.1 | Carga de configuración |
-| LangChain | latest | Abstracción LLM y splitters |
+| Python | 3.14 | Runtime |
+| FastAPI | 0.136 | Framework HTTP |
+| Uvicorn | 0.39 | Servidor ASGI |
+| Pydantic | 2.13 | Validación y modelos |
+| pydantic-settings | 2.14 | Carga de configuración |
+| LangChain | 1.3 | Abstracción LLM y splitters |
 | langchain-openai | latest | Integración OpenAI |
 | langchain-anthropic | latest | Integración Anthropic |
 | langchain-google-genai | latest | Integración Google |
-| ChromaDB | 0.4.22 | Vector store |
-| sentence-transformers | 2.3.1 | Modelo de embedding |
-| torch | 2.2.2 | Backend de embedding |
+| ChromaDB | 1.5 | Vector store |
+| sentence-transformers | 5.5 | Modelo de embedding |
+| torch | 2.12 | Backend de embedding |
 | SQLite | builtin | Persistencia |
-| httpx | 0.26 | Cliente HTTP (Ollama multimodal) |
+| httpx | 0.28 | Cliente HTTP (Ollama multimodal) |
 | loguru | 0.7.2 | Logging estructurado |
+
+> **Nota:** los loaders de documentos (`PyPDFLoader`, `TextLoader`, `Docx2txtLoader`,
+> `UnstructuredMarkdownLoader`) siguen viniendo de `langchain-community`, paquete que
+> upstream está despriorizando en favor de integraciones dedicadas. No es bloqueante
+> hoy, pero futuras migraciones deberían vigilar reemplazos dedicados para estos
+> loaders.
 
 ---
 

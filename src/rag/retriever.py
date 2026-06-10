@@ -10,11 +10,9 @@ from src.core.config import settings
 from src.core.logger import get_logger
 
 if TYPE_CHECKING:
-    from langchain.chains import RetrievalQA
-    from langchain.prompts import PromptTemplate
-    from langchain.schema import Document
+    from langchain_core.prompts import PromptTemplate
+    from langchain_core.documents import Document
 else:
-    RetrievalQA = Any
     PromptTemplate = Any
     Document = Any
 
@@ -53,7 +51,7 @@ Respuesta:"""
         self.llm_provider = llm_provider
         self.top_k = top_k or settings.top_k_results
 
-        from langchain.prompts import PromptTemplate as LangChainPromptTemplate
+        from langchain_core.prompts import PromptTemplate as LangChainPromptTemplate
 
         # Set up prompt
         self.prompt_template = prompt_template or self.DEFAULT_PROMPT_TEMPLATE
@@ -416,30 +414,3 @@ Respuesta:"""
 
         logger.info("RAG query completed successfully")
         return result
-
-    def create_qa_chain(self, chain_type: str = "stuff") -> RetrievalQA:
-        """Create a LangChain RetrievalQA chain
-
-        Args:
-            chain_type: Type of chain ('stuff', 'map_reduce', 'refine', 'map_rerank')
-
-        Returns:
-            RetrievalQA chain
-        """
-        logger.info(f"Creating QA chain with type: {chain_type}")
-
-        from langchain.chains import RetrievalQA as LangChainRetrievalQA
-
-        retriever = self.vector_store.vectorstore.as_retriever(
-            search_kwargs={"k": self.top_k}
-        )
-
-        qa_chain = LangChainRetrievalQA.from_chain_type(
-            llm=self.llm_provider.get_llm(),
-            chain_type=chain_type,
-            retriever=retriever,
-            return_source_documents=True,
-            chain_type_kwargs={"prompt": self.prompt},
-        )
-
-        return qa_chain

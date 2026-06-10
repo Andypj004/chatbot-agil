@@ -94,9 +94,9 @@ curl -X POST http://localhost:8000/api/v1/chat \
 
 | Componente | Tecnología |
 |---|---|
-| API | FastAPI 0.109 + Uvicorn |
-| LLM | LangChain + OpenAI / Anthropic / Google / DeepSeek / Ollama |
-| Vectores | ChromaDB 0.4 + sentence-transformers |
+| API | FastAPI 0.136 + Uvicorn |
+| LLM | LangChain 1.x + OpenAI / Anthropic / Google / DeepSeek / Ollama |
+| Vectores | ChromaDB 1.5 + sentence-transformers |
 | Embedding | `paraphrase-multilingual-MiniLM-L12-v2` |
 | Persistencia | SQLite (conversaciones) |
 | Validación | Pydantic v2 |

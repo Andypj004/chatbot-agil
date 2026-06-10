@@ -8,7 +8,7 @@ from pathlib import Path
 import unicodedata
 
 import httpx
-from langchain.schema import HumanMessage
+from langchain_core.messages import HumanMessage
 
 from src.core import PromptManager, classify_question
 from src.llm.base import BaseLLMProvider

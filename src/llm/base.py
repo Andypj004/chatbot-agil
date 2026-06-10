@@ -5,7 +5,7 @@ from typing import Any, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     # Accept both chat models (BaseChatModel) and completion LLMs (BaseLLM).
-    from langchain.schema.language_model import BaseLanguageModel
+    from langchain_core.language_models import BaseLanguageModel
 else:
     BaseLanguageModel = Any
 
@@ -36,7 +36,7 @@ class BaseLLMProvider(ABC):
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.kwargs = kwargs
-        self._llm: Optional[BaseChatModel] = None
+        self._llm: Optional[BaseLanguageModel] = None
 
     @abstractmethod
     def get_llm(self) -> BaseLanguageModel:

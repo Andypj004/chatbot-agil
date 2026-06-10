@@ -1,7 +1,7 @@
 """Deepseek LLM provider implementation"""
 
 from langchain_openai import ChatOpenAI
-from langchain.chat_models.base import BaseChatModel
+from langchain_core.language_models.chat_models import BaseChatModel
 
 from src.llm.base import BaseLLMProvider
 from src.core.logger import get_logger

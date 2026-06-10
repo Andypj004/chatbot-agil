@@ -12,7 +12,7 @@
 
 ## Prerequisitos
 
-- **Python 3.11** o superior (para uvicorn local).
+- **Python 3.14** o superior (para uvicorn local).
 - **Docker y Docker Compose** (para la opción Docker).
 - Al menos **una clave de API** de proveedor LLM configurada en `.env`, o Ollama corriendo localmente.
 

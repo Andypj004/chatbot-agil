@@ -21,7 +21,9 @@ def test_classify_pure_factual_question_as_non_project_context():
 
 
 def test_classify_project_question_as_project_context():
-    result = classify_question("¿Cómo podemos organizar nuestro sprint para el proyecto final?")
+    result = classify_question(
+        "¿Cómo podemos organizar nuestro sprint para el proyecto final?"
+    )
 
     assert result.is_project_context is True
     assert result.confidence > 0.55

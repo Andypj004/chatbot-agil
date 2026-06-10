@@ -16,14 +16,15 @@ def test_factory_registration():
 
 def test_create_provider_with_defaults():
     """Test creating provider with default settings"""
-    with patch.dict('os.environ', {'OPENAI_API_KEY': 'test-key'}):
+    with patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}):
         from src.core.config import Settings
-        with patch('src.llm.factory.settings') as mock_settings:
-            mock_settings.get_api_key.return_value = 'test-key'
-            mock_settings.default_llm_provider = 'openai'
+
+        with patch("src.llm.factory.settings") as mock_settings:
+            mock_settings.get_api_key.return_value = "test-key"
+            mock_settings.default_llm_provider = "openai"
             mock_settings.temperature = 0.7
             mock_settings.max_tokens = 2000
-            
+
             # This will fail without a real API key, but tests the flow
             try:
                 provider = LLMFactory.create_provider()

@@ -1,8 +1,8 @@
 """Ollama LLM provider implementation."""
 
 import httpx
-from langchain_community.llms import Ollama
-from langchain.llms.base import BaseLLM
+from langchain_ollama import OllamaLLM
+from langchain_core.language_models.llms import BaseLLM
 
 from src.llm.base import BaseLLMProvider
 from src.core.config import settings
@@ -98,7 +98,7 @@ class OllamaProvider(BaseLLMProvider):
                 f"Initializing Ollama provider with model: {self.model_name} "
                 f"at {resolved_base_url}"
             )
-            self._llm = Ollama(
+            self._llm = OllamaLLM(
                 base_url=resolved_base_url,
                 model=self.model_name,
                 temperature=self.temperature,

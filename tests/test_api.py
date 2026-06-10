@@ -4,7 +4,7 @@ import pytest
 from pathlib import Path
 from fastapi.testclient import TestClient
 from unittest.mock import Mock, patch
-from langchain.schema import Document
+from langchain_core.documents import Document
 
 from src.api import dependencies
 from src.main import app
@@ -17,7 +17,9 @@ client = TestClient(app)
 def isolate_runtime_state(tmp_path, monkeypatch):
     """Ensure each test runs with a writable isolated session database."""
     test_db_path = tmp_path / "conversations-test.db"
-    monkeypatch.setattr(dependencies, "_session_manager", SessionManager(db_path=str(test_db_path)))
+    monkeypatch.setattr(
+        dependencies, "_session_manager", SessionManager(db_path=str(test_db_path))
+    )
     app.dependency_overrides.clear()
     yield
     app.dependency_overrides.clear()
@@ -149,9 +151,9 @@ def test_authenticated_users_get_isolated_sessions():
         "sources": [],
     }
 
-    with patch('src.api.routes.chat.get_llm_provider', return_value=mock_provider), patch(
-        'src.api.routes.chat.get_chatbot_agent', return_value=mock_agent
-    ):
+    with patch(
+        "src.api.routes.chat.get_llm_provider", return_value=mock_provider
+    ), patch("src.api.routes.chat.get_chatbot_agent", return_value=mock_agent):
         first_chat = client.post(
             "/api/v1/chat",
             headers={"Authorization": f"Bearer {first_user['access_token']}"},
@@ -169,18 +171,24 @@ def test_authenticated_users_get_isolated_sessions():
         headers={"Authorization": f"Bearer {first_user['access_token']}"},
     )
     assert first_sessions.status_code == 200
-    assert any(item["session_id"] == "user-one-session" for item in first_sessions.json()["sessions"])
+    assert any(
+        item["session_id"] == "user-one-session"
+        for item in first_sessions.json()["sessions"]
+    )
 
     second_sessions = client.get(
         "/api/v1/sessions",
         headers={"Authorization": f"Bearer {second_user['access_token']}"},
     )
     assert second_sessions.status_code == 200
-    assert all(item["session_id"] != "user-one-session" for item in second_sessions.json()["sessions"])
+    assert all(
+        item["session_id"] != "user-one-session"
+        for item in second_sessions.json()["sessions"]
+    )
 
 
-@patch('src.api.routes.chat.get_llm_provider')
-@patch('src.api.routes.chat.get_chatbot_agent')
+@patch("src.api.routes.chat.get_llm_provider")
+@patch("src.api.routes.chat.get_chatbot_agent")
 def test_chat_endpoint(mock_get_agent, mock_get_provider):
     """Test chat endpoint"""
     mock_get_provider.return_value = Mock()
@@ -194,15 +202,11 @@ def test_chat_endpoint(mock_get_agent, mock_get_provider):
         "used_rag": False,
     }
     mock_get_agent.return_value = mock_agent
-    
+
     response = client.post(
-        "/api/v1/chat",
-        json={
-            "message": "Hello, world!",
-            "use_rag": False
-        }
+        "/api/v1/chat", json={"message": "Hello, world!", "use_rag": False}
     )
-    
+
     assert response.status_code == 200
     data = response.json()
     assert "response" in data
@@ -212,11 +216,8 @@ def test_chat_endpoint(mock_get_agent, mock_get_provider):
 
 def test_chat_endpoint_invalid_request():
     """Test chat endpoint with invalid request"""
-    response = client.post(
-        "/api/v1/chat",
-        json={}  # Missing required 'message' field
-    )
-    
+    response = client.post("/api/v1/chat", json={})  # Missing required 'message' field
+
     assert response.status_code == 422  # Unprocessable Entity
 
 
@@ -224,24 +225,16 @@ def test_update_config_rejects_invalid_model_for_provider():
     """Config update should reject models outside the selected provider catalog."""
     response = client.post(
         "/api/v1/config",
-        json={
-            "llm_provider": "anthropic",
-            "model_name": "gpt-4-turbo-preview"
-        }
+        json={"llm_provider": "anthropic", "model_name": "gpt-4-turbo-preview"},
     )
 
     assert response.status_code == 400
-    assert "Invalid provider" in response.json()["detail"]
+    assert "Invalid model for provider" in response.json()["detail"]
 
 
 def test_update_config_sets_provider_default_model_when_model_omitted():
     """Switching providers without a model should apply the provider default."""
-    response = client.post(
-        "/api/v1/config",
-        json={
-            "llm_provider": "openai"
-        }
-    )
+    response = client.post("/api/v1/config", json={"llm_provider": "openai"})
 
     assert response.status_code == 200
     data = response.json()
@@ -249,21 +242,25 @@ def test_update_config_sets_provider_default_model_when_model_omitted():
     assert data["model_name"]
 
 
-@patch('src.api.dependencies.LLMFactory.create_provider')
+@patch("src.api.dependencies.LLMFactory.create_provider")
 def test_get_llm_provider_reuses_cached_instance(mock_create_provider):
     """Dependency helper should reuse identical provider instances across requests."""
     dependencies.reset_runtime_caches()
     mock_provider = Mock()
     mock_create_provider.return_value = mock_provider
 
-    first = dependencies.get_llm_provider(provider_name="openai", model_name="gpt-4o-mini")
-    second = dependencies.get_llm_provider(provider_name="openai", model_name="gpt-4o-mini")
+    first = dependencies.get_llm_provider(
+        provider_name="openai", model_name="gpt-4o-mini"
+    )
+    second = dependencies.get_llm_provider(
+        provider_name="openai", model_name="gpt-4o-mini"
+    )
 
     assert first is second
     mock_create_provider.assert_called_once()
 
 
-@patch('src.api.dependencies._create_cached_rag_retriever')
+@patch("src.api.dependencies._create_cached_rag_retriever")
 def test_get_chatbot_agent_builds_rag_only_when_enabled(mock_cached_retriever):
     """Agent factory should avoid retriever work when RAG is disabled."""
     mock_provider = Mock()
@@ -287,7 +284,7 @@ def test_chat_endpoint_rejects_invalid_model_for_provider_request():
             "llm_provider": "openai",
             "model_name": "gpt-4-turbo-preview",
             "use_rag": False,
-        }
+        },
     )
 
     assert response.status_code == 200
@@ -296,8 +293,8 @@ def test_chat_endpoint_rejects_invalid_model_for_provider_request():
     assert payload.get("used_rag") is False
 
 
-@patch('src.api.routes.chat.get_llm_provider')
-@patch('src.api.routes.chat.get_chatbot_agent')
+@patch("src.api.routes.chat.get_llm_provider")
+@patch("src.api.routes.chat.get_chatbot_agent")
 def test_chat_history_endpoints(mock_get_agent, mock_get_provider):
     """Session list/history endpoints should return persisted chat turns."""
     mock_get_provider.return_value = Mock()
@@ -327,7 +324,9 @@ def test_chat_history_endpoints(mock_get_agent, mock_get_provider):
     assert sessions_response.status_code == 200
     sessions_payload = sessions_response.json()
     assert "sessions" in sessions_payload
-    assert any(item["session_id"] == session_id for item in sessions_payload["sessions"])
+    assert any(
+        item["session_id"] == session_id for item in sessions_payload["sessions"]
+    )
 
     history_response = client.get(f"/api/v1/sessions/{session_id}/history")
     assert history_response.status_code == 200
@@ -336,8 +335,8 @@ def test_chat_history_endpoints(mock_get_agent, mock_get_provider):
     assert history_payload["total_messages"] >= 2
 
 
-@patch('src.api.routes.chat.get_llm_provider')
-@patch('src.api.routes.chat.get_chatbot_agent')
+@patch("src.api.routes.chat.get_llm_provider")
+@patch("src.api.routes.chat.get_chatbot_agent")
 def test_chat_streaming_endpoint(mock_get_agent, mock_get_provider):
     """Streaming chat should emit SSE response payload."""
     mock_get_provider_instance = Mock()
@@ -400,9 +399,13 @@ def test_session_document_upload_and_list_flow(tmp_path):
     sample_path.write_bytes(b"%PDF-1.4 test")
 
     app.dependency_overrides[dependencies.get_vector_store] = lambda: mock_vector_store
-    app.dependency_overrides[dependencies.get_document_processor] = lambda: mock_doc_processor
+    app.dependency_overrides[dependencies.get_document_processor] = (
+        lambda: mock_doc_processor
+    )
 
-    with patch("src.api.routes.documents.save_uploaded_file", return_value=str(sample_path)):
+    with patch(
+        "src.api.routes.documents.save_uploaded_file", return_value=str(sample_path)
+    ):
         upload_response = client.post(
             "/api/v1/documents/sessions/s1/upload",
             files={"file": ("sample.pdf", b"dummy-pdf", "application/pdf")},

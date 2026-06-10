@@ -2,9 +2,20 @@
 
 ## Prerequisitos
 
-- Python 3.11 o superior.
+- Python 3.14 o superior.
 - Al menos una clave de API de proveedor LLM (OpenAI, Anthropic, Google, DeepSeek) **o** Ollama corriendo localmente.
 - Si trabajas en WSL: crea y activa el entorno virtual desde dentro de WSL.
+
+> **Python 3.14 sin `pip`:** algunas distribuciones (p. ej. Debian/WSL) instalan
+> `python3.14` sin `pip` ni `ensurepip`. Si `python -m venv .venv` crea un entorno sin
+> `pip`, créalo con `python3.14 -m venv --without-pip .venv` y luego instala `pip` con
+> [`get-pip.py`](https://bootstrap.pypa.io/get-pip.py):
+>
+> ```bash
+> curl -sS https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
+> .venv/bin/python /tmp/get-pip.py
+> .venv/bin/python -m pip install --upgrade pip setuptools wheel
+> ```
 
 ---
 

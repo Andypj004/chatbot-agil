@@ -11,7 +11,7 @@ from src.core.config import settings
 from src.core.logger import get_logger
 
 if TYPE_CHECKING:
-    from langchain.schema import Document
+    from langchain_core.documents import Document
 else:
     Document = Any
 
@@ -83,8 +83,8 @@ class VectorStore:
 
         import chromadb
         from chromadb.config import Settings as ChromaSettings
-        from langchain_community.embeddings import HuggingFaceEmbeddings
-        from langchain_community.vectorstores import Chroma
+        from langchain_huggingface import HuggingFaceEmbeddings
+        from langchain_chroma import Chroma
 
         # Initialize embeddings
         logger.info(f"Loading embedding model: {self.embedding_model_name}")
@@ -120,7 +120,7 @@ class VectorStore:
 
     def _rebuild_vectorstore_wrapper(self) -> None:
         """Recreate the LangChain Chroma wrapper after collection resets."""
-        from langchain_community.vectorstores import Chroma
+        from langchain_chroma import Chroma
 
         self.vectorstore = Chroma(
             client=self.client,

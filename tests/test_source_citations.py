@@ -32,7 +32,10 @@ def test_filter_relevant_sources_keeps_matching_sources_only():
     raw_sources = [
         {
             "content": "Los criterios de aceptacion deben ser claros, medibles y verificables.",
-            "metadata": {"filename": "scrum-guide.pdf", "section": "Acceptance Criteria"},
+            "metadata": {
+                "filename": "scrum-guide.pdf",
+                "section": "Acceptance Criteria",
+            },
         },
         {
             "content": "Historia general sobre marcos de trabajo sin relacion directa.",
@@ -75,4 +78,6 @@ def test_filter_relevant_sources_prefers_unseen_citations():
     )
 
     assert len(filtered) == 2
-    assert ChatbotAgent._source_citation_key(filtered[0]) == ChatbotAgent._source_citation_key(fresh_source)
+    assert ChatbotAgent._source_citation_key(
+        filtered[0]
+    ) == ChatbotAgent._source_citation_key(fresh_source)

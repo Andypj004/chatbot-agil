@@ -8,7 +8,7 @@ from src.core.config import settings
 from src.core.logger import get_logger
 
 if TYPE_CHECKING:
-    from langchain.schema import Document
+    from langchain_core.documents import Document
 else:
     Document = Any
 
@@ -30,7 +30,7 @@ class DocumentProcessor:
         self.chunk_size = chunk_size or settings.chunk_size
         self.chunk_overlap = chunk_overlap or settings.chunk_overlap
 
-        from langchain.text_splitter import RecursiveCharacterTextSplitter
+        from langchain_text_splitters import RecursiveCharacterTextSplitter
 
         # Initialize text splitter
         self.text_splitter = RecursiveCharacterTextSplitter(
@@ -107,7 +107,7 @@ class DocumentProcessor:
 
             # Add metadata
             for doc in documents:
-                doc.metadata.update(metadata)
+                doc.metadata.update(metadata)  # pylint: disable=no-member
 
             logger.info(f"Loaded {len(documents)} pages/sections from {path.name}")
             return documents
@@ -172,7 +172,7 @@ class DocumentProcessor:
         """
         logger.info(f"Processing raw text ({len(text)} characters)")
 
-        from langchain.schema import Document as LangChainDocument
+        from langchain_core.documents import Document as LangChainDocument
 
         # Create a document from the text
         doc = LangChainDocument(page_content=text, metadata=metadata or {})

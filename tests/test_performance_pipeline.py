@@ -15,10 +15,7 @@ from unittest.mock import Mock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-try:
-    from langchain.schema import Document
-except ImportError:
-    from langchain_core.documents import Document
+from langchain_core.documents import Document
 
 from src.agents.chatbot_agent import ChatbotAgent
 from src.api import dependencies
@@ -160,9 +157,9 @@ class TestPipelineStageLatency:
         for q in queries:
             extract_concepts(q)
         elapsed = (time.monotonic() - start) * 1000
-        assert elapsed < 50, (
-            f"100 extract_concepts() calls took {elapsed:.1f} ms (limit 50 ms)."
-        )
+        assert (
+            elapsed < 50
+        ), f"100 extract_concepts() calls took {elapsed:.1f} ms (limit 50 ms)."
 
     def test_pt007_history_note_builder_under_5ms(self):
         """PT-007: build_history_note() for a 5-concept list < 5 ms.
@@ -174,9 +171,7 @@ class TestPipelineStageLatency:
         start = time.monotonic()
         note = build_history_note(concepts, repeated=True)
         elapsed = (time.monotonic() - start) * 1000
-        assert elapsed < 5, (
-            f"build_history_note() took {elapsed:.2f} ms (limit 5 ms)."
-        )
+        assert elapsed < 5, f"build_history_note() took {elapsed:.2f} ms (limit 5 ms)."
         assert note  # sanity: non-empty result
 
     def test_pt008_source_filter_10_chunks_under_100ms(self):
@@ -186,7 +181,9 @@ class TestPipelineStageLatency:
         every retrieved chunk. 10 chunks is a typical upper bound for a
         RAG-enabled response.
         """
-        response = "El Sprint es una iteración de 2 semanas en Scrum con un objetivo claro."
+        response = (
+            "El Sprint es una iteración de 2 semanas en Scrum con un objetivo claro."
+        )
         sources = [
             {
                 "content": (
@@ -206,9 +203,9 @@ class TestPipelineStageLatency:
         start = time.monotonic()
         filtered = ChatbotAgent._filter_relevant_sources(response, sources)
         elapsed = (time.monotonic() - start) * 1000
-        assert elapsed < 100, (
-            f"_filter_relevant_sources() with 10 chunks took {elapsed:.1f} ms (limit 100 ms)."
-        )
+        assert (
+            elapsed < 100
+        ), f"_filter_relevant_sources() with 10 chunks took {elapsed:.1f} ms (limit 100 ms)."
         assert isinstance(filtered, list)
 
 
@@ -267,9 +264,9 @@ class TestAgentPipelineOverhead:
         elapsed = (time.monotonic() - start) * 1000
 
         assert result["response"] == _LLM_RESPONSE
-        assert elapsed < 300, (
-            f"Socratic pipeline overhead: {elapsed:.0f} ms (limit 300 ms)."
-        )
+        assert (
+            elapsed < 300
+        ), f"Socratic pipeline overhead: {elapsed:.0f} ms (limit 300 ms)."
 
     def test_pt011_pipeline_with_12_message_history_under_400ms(self, tmp_path):
         """PT-011: Pipeline with full 12-message history window < 400 ms.
@@ -329,9 +326,9 @@ class TestAgentPipelineOverhead:
         elapsed = (time.monotonic() - start) * 1000
 
         assert result["used_rag"] is True
-        assert elapsed < 400, (
-            f"RAG pipeline overhead (no vector IO): {elapsed:.0f} ms (limit 400 ms)."
-        )
+        assert (
+            elapsed < 400
+        ), f"RAG pipeline overhead (no vector IO): {elapsed:.0f} ms (limit 400 ms)."
 
 
 # ===========================================================================
@@ -387,9 +384,9 @@ class TestEndToEndSimulatedLLMLatency:
         elapsed = (time.monotonic() - start) * 1000
 
         assert r.status_code == 200
-        assert elapsed < 1500, (
-            f"Full HTTP flow (1 000 ms LLM): {elapsed:.0f} ms total (limit 1 500 ms)."
-        )
+        assert (
+            elapsed < 1500
+        ), f"Full HTTP flow (1 000 ms LLM): {elapsed:.0f} ms total (limit 1 500 ms)."
 
     def test_pt015_five_consecutive_requests_each_under_300ms(self):
         """PT-015: 5 consecutive requests to same session each complete in < 300 ms (instant LLM).
