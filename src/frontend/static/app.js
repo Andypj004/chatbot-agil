@@ -542,6 +542,9 @@ function App() {
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [docsOpen, setDocsOpen] = useState(false);
+  const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
+  const [deleteAccountConfirmText, setDeleteAccountConfirmText] = useState("");
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [documents, setDocuments] = useState([]);
   const [sessionDocuments, setSessionDocuments] = useState([]);
   const [isUploadingGlobalDocs, setIsUploadingGlobalDocs] = useState(false);
@@ -565,12 +568,14 @@ function App() {
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const settingsPanelRef = useRef(null);
   const docsPanelRef = useRef(null);
+  const deleteAccountPanelRef = useRef(null);
   const scrollRafRef = useRef(null);
 
   const modelsForCurrentProvider = useMemo(() => modelsByProvider[provider] || [], [modelsByProvider, provider]);
   const activeSession = useMemo(() => sessions.find((item) => item.session_id === sessionId) || null, [sessions, sessionId]);
   const hasMessages = messages.length > 0;
   const sessionStorageKey = getSessionStorageKey(currentUser?.user_id);
+  const isAdmin = Boolean(currentUser?.is_admin);
 
   const scrollToConversationBottom = () => {
     if (!chatViewportRef.current) {
@@ -734,6 +739,22 @@ function App() {
     setAuthMessage("Sesion cerrada");
     setAuthError("");
     setHelpMenuOpen(false);
+  };
+
+  const deleteMyAccount = async () => {
+    setIsDeletingAccount(true);
+    try {
+      await request("/auth/me", { method: "DELETE" });
+      setDeleteAccountOpen(false);
+      setDeleteAccountConfirmText("");
+      await logout();
+      setAuthMessage("Tu cuenta fue eliminada exitosamente");
+      notify("Cuenta eliminada exitosamente", "ok");
+    } catch (error) {
+      notify(`Error al eliminar la cuenta: ${error.message}`, "error");
+    } finally {
+      setIsDeletingAccount(false);
+    }
   };
 
   const updateAuthField = (field, value) => {
@@ -1472,6 +1493,29 @@ function App() {
   }, [settingsOpen]);
 
   useEffect(() => {
+    if (!deleteAccountOpen || !deleteAccountPanelRef.current) return;
+    const panel = deleteAccountPanelRef.current;
+    const getFocusable = () => Array.from(panel.querySelectorAll(
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    ));
+    const focusable = getFocusable();
+    if (focusable.length) focusable[0].focus();
+    const onKey = (e) => {
+      if (e.key === "Escape") { if (!isDeletingAccount) setDeleteAccountOpen(false); return; }
+      if (e.key !== "Tab") return;
+      const items = getFocusable();
+      if (!items.length) return;
+      if (e.shiftKey) {
+        if (document.activeElement === items[0]) { e.preventDefault(); items[items.length - 1].focus(); }
+      } else {
+        if (document.activeElement === items[items.length - 1]) { e.preventDefault(); items[0].focus(); }
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [deleteAccountOpen, isDeletingAccount]);
+
+  useEffect(() => {
     if (!docsOpen || !docsPanelRef.current) return;
     const panel = docsPanelRef.current;
     const getFocusable = () => Array.from(panel.querySelectorAll(
@@ -1573,10 +1617,19 @@ function App() {
 
           {helpMenuOpen && (
             <div className="sidebar-help-menu">
-              <button onClick={() => { setSettingsOpen(true); setHelpMenuOpen(false); }}>Configuración avanzada</button>
-              <button onClick={() => { setDocsOpen(true); loadDocuments().catch(() => {}); setHelpMenuOpen(false); }}>Gestión de documentos</button>
+              <button onClick={() => { setSettingsOpen(true); setHelpMenuOpen(false); }}>{isAdmin ? "Configuración avanzada" : "Configuración"}</button>
+              {isAdmin && (
+                <button onClick={() => { setDocsOpen(true); loadDocuments().catch(() => {}); setHelpMenuOpen(false); }}>Gestión de documentos</button>
+              )}
               <button onClick={() => { setTheme(theme === "dark" ? "light" : "dark"); setHelpMenuOpen(false); }}>
                 Tema: {theme === "dark" ? "Claro" : "Oscuro"}
+              </button>
+              <div className="sidebar-help-menu-divider" role="separator" />
+              <button
+                className="sidebar-help-menu-danger"
+                onClick={() => { setDeleteAccountOpen(true); setDeleteAccountConfirmText(""); setHelpMenuOpen(false); }}
+              >
+                Eliminar mi cuenta
               </button>
             </div>
           )}
@@ -1974,15 +2027,19 @@ function App() {
             aria-labelledby="settings-dialog-title"
             onClick={(event) => event.stopPropagation()}
           >
-            <h3 id="settings-dialog-title">Configuración avanzada</h3>
-            <label htmlFor="settings-api-base">API Base URL</label>
-            <input id="settings-api-base" value={apiBase} onChange={(event) => setApiBase(event.target.value)} />
+            <h3 id="settings-dialog-title">{isAdmin ? "Configuración avanzada" : "Configuración"}</h3>
+            {isAdmin && (
+              <>
+                <label htmlFor="settings-api-base">API Base URL</label>
+                <input id="settings-api-base" value={apiBase} onChange={(event) => setApiBase(event.target.value)} />
 
-            <label htmlFor="settings-temperature">Temperature: {temperature}</label>
-            <input id="settings-temperature" type="range" min="0" max="1" step="0.1" value={temperature} onChange={(event) => setTemperature(Number(event.target.value))} />
+                <label htmlFor="settings-temperature">Temperature: {temperature}</label>
+                <input id="settings-temperature" type="range" min="0" max="1" step="0.1" value={temperature} onChange={(event) => setTemperature(Number(event.target.value))} />
 
-            <label htmlFor="settings-max-tokens">Max tokens</label>
-            <input id="settings-max-tokens" type="number" min="1" value={maxTokens} onChange={(event) => setMaxTokens(Number(event.target.value))} />
+                <label htmlFor="settings-max-tokens">Max tokens</label>
+                <input id="settings-max-tokens" type="number" min="1" value={maxTokens} onChange={(event) => setMaxTokens(Number(event.target.value))} />
+              </>
+            )}
 
             <label className="checkbox-row">
               <input
@@ -1996,13 +2053,54 @@ function App() {
 
             <div className="panel-actions">
               <button className="ghost-btn" onClick={() => setSettingsOpen(false)}>Cerrar</button>
-              <button className="primary-btn" onClick={saveAdvancedConfig}>Guardar</button>
+              {isAdmin && (
+                <button className="primary-btn" onClick={saveAdvancedConfig}>Guardar</button>
+              )}
             </div>
           </section>
         </div>
       )}
 
-      {docsOpen && (
+      {deleteAccountOpen && (
+        <div className="overlay" onClick={() => !isDeletingAccount && setDeleteAccountOpen(false)}>
+          <section
+            ref={deleteAccountPanelRef}
+            className="panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-account-dialog-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3 id="delete-account-dialog-title">Eliminar mi cuenta</h3>
+            <p>
+              Esta acción es permanente y no se puede deshacer. Se eliminarán tu cuenta,
+              tus conversaciones, mensajes y documentos adjuntos.
+            </p>
+
+            <label htmlFor="delete-account-confirm">Escribe ELIMINAR para confirmar</label>
+            <input
+              id="delete-account-confirm"
+              value={deleteAccountConfirmText}
+              onChange={(event) => setDeleteAccountConfirmText(event.target.value)}
+              disabled={isDeletingAccount}
+              autoComplete="off"
+            />
+
+            <div className="panel-actions">
+              <button className="ghost-btn" onClick={() => setDeleteAccountOpen(false)} disabled={isDeletingAccount}>Cancelar</button>
+              <button
+                className="danger-btn"
+                onClick={deleteMyAccount}
+                disabled={deleteAccountConfirmText.trim() !== "ELIMINAR" || isDeletingAccount}
+              >
+                {isDeletingAccount ? "Eliminando…" : "Eliminar definitivamente"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {isAdmin && docsOpen && (
         <div className="overlay" onClick={() => setDocsOpen(false)}>
           <section
             ref={docsPanelRef}

@@ -383,6 +383,21 @@ select option {
   border-color: var(--border);
 }
 
+.sidebar-help-menu-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 2px 4px;
+}
+
+.sidebar-help-menu button.sidebar-help-menu-danger {
+  color: var(--danger);
+}
+
+.sidebar-help-menu button.sidebar-help-menu-danger:hover {
+  background: var(--danger-bg);
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+}
+
 .floating-new-chat {
   position: fixed;
   top: 78px;
@@ -1150,6 +1165,11 @@ select option {
 .danger-btn {
   color: var(--danger);
   border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+}
+
+.danger-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .overlay {

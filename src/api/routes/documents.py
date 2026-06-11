@@ -11,6 +11,7 @@ from src.api.dependencies import (
     get_document_processor,
     get_session_manager,
     get_current_user_optional,
+    get_current_admin,
 )
 from src.rag.vector_store import VectorStore
 from src.rag.document_processor import DocumentProcessor
@@ -91,6 +92,7 @@ def _clear_uploaded_files(uploads_dir: Path) -> None:
 )
 async def upload_document(
     file: UploadFile = File(..., description="Document file to upload"),
+    _admin=Depends(get_current_admin),
     vector_store: VectorStore = Depends(get_vector_store),
     doc_processor: DocumentProcessor = Depends(get_document_processor),
 ):
@@ -102,6 +104,8 @@ async def upload_document(
     1. Saved to disk
     2. Processed and chunked
     3. Added to the vector database for RAG
+
+    Requires admin privileges.
 
     Args:
         file: Document file
@@ -236,8 +240,13 @@ async def upload_session_document(
 
 
 @router.get("", response_model=DocumentListResponse, summary="List all documents")
-async def list_documents(vector_store: VectorStore = Depends(get_vector_store)):
+async def list_documents(
+    _admin=Depends(get_current_admin),
+    vector_store: VectorStore = Depends(get_vector_store),
+):
     """List all documents in the knowledge base
+
+    Requires admin privileges.
 
     Returns:
         List of documents with metadata
@@ -313,9 +322,13 @@ async def list_session_documents(
 
 @router.delete("/{document_id}", summary="Delete a document")
 async def delete_document(
-    document_id: str, vector_store: VectorStore = Depends(get_vector_store)
+    document_id: str,
+    _admin=Depends(get_current_admin),
+    vector_store: VectorStore = Depends(get_vector_store),
 ):
     """Delete a document from the knowledge base
+
+    Requires admin privileges.
 
     Args:
         document_id: ID of the document to delete
@@ -455,10 +468,15 @@ async def clear_session_documents(
 
 
 @router.delete("", summary="Clear all documents")
-async def clear_documents(vector_store: VectorStore = Depends(get_vector_store)):
+async def clear_documents(
+    _admin=Depends(get_current_admin),
+    vector_store: VectorStore = Depends(get_vector_store),
+):
     """Clear all documents from the knowledge base
 
     ⚠️ Warning: This action cannot be undone!
+
+    Requires admin privileges.
 
     Args:
         vector_store: Vector store instance

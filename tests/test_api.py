@@ -7,10 +7,14 @@ from unittest.mock import Mock, patch
 from langchain_core.documents import Document
 
 from src.api import dependencies
+from src.core import config as cfg_module
 from src.main import app
 from src.memory.session_manager import SessionManager
 
 client = TestClient(app)
+
+ADMIN_EMAIL = "admin@configtest.com"
+ADMIN_PASSWORD = "adminpass123"
 
 
 @pytest.fixture(autouse=True)
@@ -20,10 +24,31 @@ def isolate_runtime_state(tmp_path, monkeypatch):
     monkeypatch.setattr(
         dependencies, "_session_manager", SessionManager(db_path=str(test_db_path))
     )
+    monkeypatch.setattr(cfg_module.settings, "admin_emails", ADMIN_EMAIL)
     app.dependency_overrides.clear()
     yield
     app.dependency_overrides.clear()
     monkeypatch.setattr(dependencies, "_session_manager", None)
+
+
+def _register_user(email, password="secret123", account_type="Estudiante"):
+    response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": email,
+            "password": password,
+            "full_name": "Test User",
+            "account_type": account_type,
+            "knowledge_level": 2,
+            "questionnaire_answers": [],
+        },
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _auth_header(token):
+    return {"Authorization": f"Bearer {token}"}
 
 
 def test_root_endpoint():
@@ -223,8 +248,11 @@ def test_chat_endpoint_invalid_request():
 
 def test_update_config_rejects_invalid_model_for_provider():
     """Config update should reject models outside the selected provider catalog."""
+    admin = _register_user(ADMIN_EMAIL, ADMIN_PASSWORD, "Profesor")
+
     response = client.post(
         "/api/v1/config",
+        headers=_auth_header(admin["access_token"]),
         json={"llm_provider": "anthropic", "model_name": "gpt-4-turbo-preview"},
     )
 
@@ -234,12 +262,38 @@ def test_update_config_rejects_invalid_model_for_provider():
 
 def test_update_config_sets_provider_default_model_when_model_omitted():
     """Switching providers without a model should apply the provider default."""
-    response = client.post("/api/v1/config", json={"llm_provider": "openai"})
+    admin = _register_user(ADMIN_EMAIL, ADMIN_PASSWORD, "Profesor")
+
+    response = client.post(
+        "/api/v1/config",
+        headers=_auth_header(admin["access_token"]),
+        json={"llm_provider": "openai"},
+    )
 
     assert response.status_code == 200
     data = response.json()
     assert data["llm_provider"] == "openai"
     assert data["model_name"]
+
+
+def test_update_config_requires_authentication():
+    """Anonymous users cannot modify the global LLM configuration."""
+    response = client.post("/api/v1/config", json={"llm_provider": "openai"})
+
+    assert response.status_code == 401
+
+
+def test_update_config_requires_admin():
+    """Authenticated non-admin users cannot modify the global LLM configuration."""
+    user = _register_user("student-config@example.com")
+
+    response = client.post(
+        "/api/v1/config",
+        headers=_auth_header(user["access_token"]),
+        json={"llm_provider": "openai"},
+    )
+
+    assert response.status_code == 403
 
 
 @patch("src.api.dependencies.LLMFactory.create_provider")
@@ -456,3 +510,101 @@ def test_session_document_delete_endpoint_with_metadata_filter():
 
     assert response.status_code == 200
     mock_vector_store.delete_by_metadata.assert_called_once()
+
+
+def test_list_global_documents_requires_authentication():
+    """Anonymous users cannot list the global RAG knowledge base."""
+    response = client.get("/api/v1/documents")
+
+    assert response.status_code == 401
+
+
+def test_list_global_documents_requires_admin():
+    """Authenticated non-admin users cannot list the global RAG knowledge base."""
+    user = _register_user("student-list-docs@example.com")
+
+    response = client.get(
+        "/api/v1/documents", headers=_auth_header(user["access_token"])
+    )
+
+    assert response.status_code == 403
+
+
+def test_admin_can_list_global_documents():
+    """Admins can list the global RAG knowledge base."""
+    admin = _register_user(ADMIN_EMAIL, ADMIN_PASSWORD, "Profesor")
+
+    mock_vector_store = Mock()
+    mock_vector_store.list_indexed_documents.return_value = []
+    app.dependency_overrides[dependencies.get_vector_store] = lambda: mock_vector_store
+
+    response = client.get(
+        "/api/v1/documents", headers=_auth_header(admin["access_token"])
+    )
+
+    app.dependency_overrides.pop(dependencies.get_vector_store, None)
+
+    assert response.status_code == 200
+
+
+def test_upload_global_document_requires_admin():
+    """Authenticated non-admin users cannot upload to the global RAG knowledge base."""
+    user = _register_user("student-upload-docs@example.com")
+
+    mock_vector_store = Mock()
+    mock_doc_processor = Mock()
+    app.dependency_overrides[dependencies.get_vector_store] = lambda: mock_vector_store
+    app.dependency_overrides[dependencies.get_document_processor] = (
+        lambda: mock_doc_processor
+    )
+
+    response = client.post(
+        "/api/v1/documents/upload",
+        headers=_auth_header(user["access_token"]),
+        files={"file": ("sample.txt", b"contenido", "text/plain")},
+    )
+
+    app.dependency_overrides.pop(dependencies.get_vector_store, None)
+    app.dependency_overrides.pop(dependencies.get_document_processor, None)
+
+    assert response.status_code == 403
+
+
+def test_delete_global_document_requires_admin():
+    """Authenticated non-admin users cannot delete documents from the global RAG knowledge base."""
+    user = _register_user("student-delete-doc@example.com")
+
+    mock_vector_store = Mock()
+    app.dependency_overrides[dependencies.get_vector_store] = lambda: mock_vector_store
+
+    response = client.delete(
+        "/api/v1/documents/some-doc-id",
+        headers=_auth_header(user["access_token"]),
+    )
+
+    app.dependency_overrides.pop(dependencies.get_vector_store, None)
+
+    assert response.status_code == 403
+
+
+def test_clear_global_documents_requires_authentication():
+    """Anonymous users cannot wipe the global RAG knowledge base."""
+    response = client.delete("/api/v1/documents")
+
+    assert response.status_code == 401
+
+
+def test_clear_global_documents_requires_admin():
+    """Authenticated non-admin users cannot wipe the global RAG knowledge base."""
+    user = _register_user("student-clear-docs@example.com")
+
+    mock_vector_store = Mock()
+    app.dependency_overrides[dependencies.get_vector_store] = lambda: mock_vector_store
+
+    response = client.delete(
+        "/api/v1/documents", headers=_auth_header(user["access_token"])
+    )
+
+    app.dependency_overrides.pop(dependencies.get_vector_store, None)
+
+    assert response.status_code == 403

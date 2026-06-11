@@ -1,9 +1,9 @@
 """Configuration management endpoints"""
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from src.api.models import ConfigUpdateRequest, ConfigResponse
-from src.api.dependencies import reset_runtime_caches
+from src.api.dependencies import get_current_admin, reset_runtime_caches
 from src.llm.factory import LLMFactory
 from src.core.config import settings
 from src.core.logger import get_logger
@@ -46,11 +46,16 @@ async def get_config():
 
 
 @router.post("", response_model=ConfigResponse, summary="Update configuration")
-async def update_config(request: ConfigUpdateRequest):
+async def update_config(
+    request: ConfigUpdateRequest,
+    _admin=Depends(get_current_admin),
+):
     """Update chatbot configuration
 
     Note: This updates the in-memory configuration only.
     To persist changes, update the .env file.
+
+    Requires admin privileges.
 
     Args:
         request: Configuration update request
