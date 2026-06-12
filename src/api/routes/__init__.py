@@ -1,13 +1,14 @@
 """API routes module."""
 
-from src.api.routes import auth, chat, config, documents, forms, health, sessions
+from src.api.routes import admin, auth, chat, config, documents, forms, health, sessions
 
 __all__ = [
-	"auth",
-	"chat",
-	"config",
-	"documents",
-	"forms",
-	"health",
-	"sessions",
+    "admin",
+    "auth",
+    "chat",
+    "config",
+    "documents",
+    "forms",
+    "health",
+    "sessions",
 ]

@@ -29,7 +29,10 @@ def save_answer(
     value: Any,
     spec_len: int,
 ) -> bool:
-    state = session_manager.get_form_state(session_id, form_id) or {"current_index": 0, "answers": {}}
+    state = session_manager.get_form_state(session_id, form_id) or {
+        "current_index": 0,
+        "answers": {},
+    }
     state["answers"][name] = value
     state["current_index"] = state.get("current_index", 0) + 1
     session_manager.upsert_form_state(session_id, form_id, state)

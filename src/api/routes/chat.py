@@ -41,19 +41,19 @@ async def chat(
     current_user=Depends(get_current_user_optional),
 ):
     """Send a message to the chatbot and get a response
-    
+
     The chatbot can use:
     - RAG (Retrieval-Augmented Generation) for knowledge base queries
     - Multiple LLM providers (OpenAI, Claude, Gemini, Deepseek)
-    
+
     Args:
         request: Chat request with message and options
-        
+
     Returns:
         Chat response with answer and metadata
     """
     logger.info(f"Received chat request: {request.message[:100]}...")
-    
+
     try:
         session_id = request.session_id or str(uuid4())
         session_manager = get_session_manager()
@@ -61,7 +61,10 @@ async def chat(
         session_manager.create_session(session_id, user_id=user_id)
 
         existing_session = session_manager.get_session_record(session_id)
-        if existing_session is not None and existing_session.get("user_id") not in (None, user_id):
+        if existing_session is not None and existing_session.get("user_id") not in (
+            None,
+            user_id,
+        ):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Session does not belong to the authenticated user",
@@ -102,18 +105,21 @@ async def chat(
                 session_id=session_id,
                 role="system",
                 text="",
-                attachments=[attachment.model_dump() for attachment in request.session_attachments],
+                attachments=[
+                    attachment.model_dump()
+                    for attachment in request.session_attachments
+                ],
             )
 
         # Get LLM provider
         llm_provider = get_llm_provider(
             provider_name=request.llm_provider,
             model_name=request.model_name,
-            temperature=request.temperature
+            temperature=request.temperature,
         )
 
         user_profile_note = build_user_profile_context(current_user)
-        
+
         # Get chatbot agent
         agent = get_chatbot_agent(
             llm_provider=llm_provider,
@@ -124,6 +130,7 @@ async def chat(
         )
 
         if request.stream:
+
             def event_generator():
                 full_response = ""
                 final_payload = {
@@ -158,7 +165,9 @@ async def chat(
                     used_rag=final_payload.get("used_rag"),
                     sources=final_payload.get("sources") or [],
                 )
-                session_manager.record_source_citations(session_id, final_payload.get("sources") or [])
+                session_manager.record_source_citations(
+                    session_id, final_payload.get("sources") or []
+                )
 
                 yield (
                     "data: "
@@ -200,5 +209,5 @@ async def chat(
         logger.error(f"Error processing chat request: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error processing your message: {str(e)}"
+            detail=f"Error processing your message: {str(e)}",
         )

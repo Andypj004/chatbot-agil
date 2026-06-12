@@ -8,11 +8,9 @@ from pathlib import Path
 import unicodedata
 
 import httpx
-from langchain.schema import HumanMessage
+from langchain_core.messages import HumanMessage
 
 from src.core import PromptManager, classify_question
-from src.core.forms.form_manager import form_manager
-from src.core.forms.default_forms import register_default_forms
 from src.llm.base import BaseLLMProvider
 from src.rag.retriever import RAGRetriever
 from src.core.config import settings
@@ -32,7 +30,7 @@ _IMAGE_MIME = {
 
 
 class ChatbotAgent:
-    """Chatbot agent optimized for direct LLM and RAG flows, including form commands."""
+    """Chatbot agent optimized for direct LLM and RAG flows."""
 
     def __init__(
         self,
@@ -51,7 +49,6 @@ class ChatbotAgent:
         self.rag_retriever = rag_retriever
         self.enable_memory = enable_memory
         self.prompt_manager = PromptManager()
-        register_default_forms(form_manager)
 
         logger.info(
             "Chatbot agent initialized with fast path, "
@@ -59,99 +56,9 @@ class ChatbotAgent:
             f"memory={'disabled' if not enable_memory else 'not_persisted'}"
         )
 
-    @staticmethod
-    def _parse_form_command(message: str) -> Optional[Dict[str, str]]:
-        text = message.strip()
-        lowered = text.lower()
-
-        if lowered.startswith("/form start ") or lowered.startswith("form start "):
-            parts = text.split(None, 2)
-            if len(parts) < 3:
-                return {"error": "Missing form id. Use: /form start <form_id>."}
-            return {"action": "start", "form_id": parts[2].strip()}
-
-        if lowered.startswith("/form answer ") or lowered.startswith("form answer "):
-            parts = text.split(None, 2)
-            if len(parts) < 3:
-                return {"error": "Missing payload. Use: /form answer <form_id> <field>=<value>."}
-            rest = parts[2].strip()
-            subparts = rest.split(None, 1)
-            if len(subparts) < 2:
-                return {"error": "Missing field answer. Use: /form answer <form_id> <field>=<value>."}
-            form_id = subparts[0].strip()
-            assignment = subparts[1].strip()
-            if "=" in assignment:
-                name, value = assignment.split("=", 1)
-            elif ":" in assignment:
-                name, value = assignment.split(":", 1)
-            else:
-                return {"error": "Missing separator. Use: <field>=<value> or <field>:<value>."}
-            return {
-                "action": "answer",
-                "form_id": form_id,
-                "name": name.strip(),
-                "value": value.strip(),
-            }
-
-        return None
-
-    def _format_form_question(self, form_id: str, payload: Dict[str, Any]) -> str:
-        if payload.get("completed"):
-            return f"Formulario '{form_id}' completado."
-
-        label = payload.get("label") or payload.get("name")
-        name = payload.get("name")
-        return f"Formulario '{form_id}': {label} (campo: {name})."
-
-    def _format_form_result(self, form_id: str, result: Dict[str, Any]) -> str:
-        if not result.get("ok"):
-            return f"Error de formulario: {result.get('error')}."
-
-        if result.get("completed"):
-            answers = result.get("answers") or {}
-            summary = ", ".join(f"{k}={v}" for k, v in answers.items())
-            return f"Formulario '{form_id}' completado. Respuestas: {summary}."
-
-        next_payload = result.get("next") or {}
-        return f"Respuesta registrada. {self._format_form_question(form_id, next_payload)}"
-
-    def _handle_form_command(
-        self,
-        command: Dict[str, str],
-        session_id: Optional[str],
-        session_manager: Optional[Any],
-    ) -> Dict[str, Any]:
-        if command.get("error"):
-            response = command["error"]
-        elif not session_id or session_manager is None:
-            response = "Missing session context. Provide session_id to use forms."
-        else:
-            form_id = command.get("form_id") or ""
-            try:
-                if command.get("action") == "start":
-                    payload = form_manager.start_form(form_id, session_id, session_manager=session_manager)
-                    response = self._format_form_question(form_id, payload)
-                else:
-                    payload = form_manager.answer(
-                        form_id,
-                        session_id,
-                        command.get("name") or "",
-                        command.get("value"),
-                        session_manager=session_manager,
-                    )
-                    response = self._format_form_result(form_id, payload)
-            except KeyError as exc:
-                response = f"Formulario no encontrado: {exc}."
-
-        return {
-            "response": response,
-            "provider": self.llm_provider.get_provider_name(),
-            "model": self.llm_provider.model_name,
-            "used_rag": False,
-            "sources": [],
-        }
-
-    def _build_conversation_block(self, conversation_messages: Optional[List[Dict[str, Any]]]) -> str:
+    def _build_conversation_block(
+        self, conversation_messages: Optional[List[Dict[str, Any]]]
+    ) -> str:
         """Format previous messages as a compact context block."""
         if not conversation_messages:
             return ""
@@ -182,7 +89,7 @@ class ChatbotAgent:
     def _invoke_llm(self, prompt: str) -> str:
         llm = self.llm_provider.get_llm()
         result = llm.invoke(prompt)
-        return result.content if hasattr(result, "content") else result
+        return str(result.text) if hasattr(result, "text") else result
 
     def _build_direct_prompt(
         self,
@@ -274,23 +181,45 @@ class ChatbotAgent:
         if hasattr(llm, "stream"):
             try:
                 for chunk in llm.stream(prompt):
-                    text = chunk.content if hasattr(chunk, "content") else str(chunk)
+                    text = str(chunk.text) if hasattr(chunk, "text") else str(chunk)
                     if text:
                         yield text
                 return
             except Exception as exc:
-                logger.warning(f"LLM native streaming failed, falling back to chunked text: {exc}")
+                logger.warning(
+                    f"LLM native streaming failed, falling back to chunked text: {exc}"
+                )
 
         # Fallback for models/providers without native streaming.
-        full = self._generate_direct_response(
-            message,
-            conversation_messages,
-            rag_hint=rag_hint,
-            history_note=history_note,
-        )
+        try:
+            full = self._generate_direct_response(
+                message,
+                conversation_messages,
+                rag_hint=rag_hint,
+                history_note=history_note,
+            )
+        except Exception as exc:
+            logger.error(f"LLM invocation failed during stream fallback: {exc}")
+            yield f"I encountered an error: {self._format_llm_error(exc)}"
+            return
+
         for token in full.split(" "):
             if token:
                 yield f"{token} "
+
+    def _format_llm_error(self, exc: Exception) -> str:
+        """Translate a raw provider exception into a user-facing error message."""
+        error_message = str(exc)
+        if (
+            self.llm_provider.get_provider_name() == "google"
+            and "quota exceeded" in error_message.lower()
+        ):
+            return (
+                "Google Gemini quota exceeded for the selected model. "
+                "Choose another Google model in Config or switch provider "
+                "(e.g., deepseek/openai), then retry."
+            )
+        return error_message
 
     @staticmethod
     def _is_image_document(item: Dict[str, Any]) -> bool:
@@ -329,7 +258,9 @@ class ChatbotAgent:
                 return candidate
         return None
 
-    def _generate_ollama_multimodal_response(self, prompt: str, image_paths: List[str]) -> str:
+    def _generate_ollama_multimodal_response(
+        self, prompt: str, image_paths: List[str]
+    ) -> str:
         base_url = self._resolve_ollama_base_url()
         if not base_url:
             raise ValueError(
@@ -374,7 +305,7 @@ class ChatbotAgent:
             )
 
         result = llm.invoke([HumanMessage(content=content)])
-        return result.content if hasattr(result, "content") else str(result)
+        return str(result.text) if hasattr(result, "text") else str(result)
 
     @staticmethod
     def _extract_sources(raw_sources: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -391,7 +322,11 @@ class ChatbotAgent:
             except Exception:
                 page = None
 
-            section = metadata.get("section") or metadata.get("heading") or metadata.get("title")
+            section = (
+                metadata.get("section")
+                or metadata.get("heading")
+                or metadata.get("title")
+            )
             relevance = metadata.get("relevance") or metadata.get("score")
             try:
                 relevance = float(relevance) if relevance is not None else None
@@ -400,7 +335,8 @@ class ChatbotAgent:
 
             normalized.append(
                 {
-                    "document_id": metadata.get("file_hash") or metadata.get("chunk_id"),
+                    "document_id": metadata.get("file_hash")
+                    or metadata.get("chunk_id"),
                     "filename": metadata.get("filename"),
                     "source": metadata.get("source"),
                     "page": page,
@@ -424,11 +360,21 @@ class ChatbotAgent:
         metadata = item.get("metadata") or {}
         content = (item.get("content") or "").strip()[:280]
         payload = [
-            cls._normalize_citation_text(metadata.get("file_hash") or metadata.get("chunk_id") or metadata.get("document_id")),
+            cls._normalize_citation_text(
+                metadata.get("file_hash")
+                or metadata.get("chunk_id")
+                or metadata.get("document_id")
+            ),
             cls._normalize_citation_text(metadata.get("filename")),
             cls._normalize_citation_text(metadata.get("source")),
-            cls._normalize_citation_text(metadata.get("page") or metadata.get("page_label")),
-            cls._normalize_citation_text(metadata.get("section") or metadata.get("heading") or metadata.get("title")),
+            cls._normalize_citation_text(
+                metadata.get("page") or metadata.get("page_label")
+            ),
+            cls._normalize_citation_text(
+                metadata.get("section")
+                or metadata.get("heading")
+                or metadata.get("title")
+            ),
             cls._normalize_citation_text(metadata.get("scope") or "global_rag"),
             cls._normalize_citation_text(content),
         ]
@@ -441,7 +387,9 @@ class ChatbotAgent:
         return " ".join(text.split())
 
     @classmethod
-    def _source_relevance_score(cls, response_text: str, source_text: str, section: Optional[str] = None) -> float:
+    def _source_relevance_score(
+        cls, response_text: str, source_text: str, section: Optional[str] = None
+    ) -> float:
         response = cls._normalize_text(response_text)
         source = cls._normalize_text(source_text)
 
@@ -451,12 +399,18 @@ class ChatbotAgent:
         if source in response:
             return 1.0
 
-        response_tokens = {token for token in re.findall(r"\w+", response) if len(token) > 3}
-        source_tokens = [token for token in re.findall(r"\w+", source) if len(token) > 3]
+        response_tokens = {
+            token for token in re.findall(r"\w+", response) if len(token) > 3
+        }
+        source_tokens = [
+            token for token in re.findall(r"\w+", source) if len(token) > 3
+        ]
         if not source_tokens:
             return 0.0
 
-        overlap = sum(1 for token in source_tokens if token in response_tokens) / len(source_tokens)
+        overlap = sum(1 for token in source_tokens if token in response_tokens) / len(
+            source_tokens
+        )
 
         phrase_bonus = 0.0
         for window in range(min(12, len(source_tokens)), 4, -1):
@@ -488,7 +442,11 @@ class ChatbotAgent:
         for item in raw_sources:
             metadata = item.get("metadata") or {}
             content = (item.get("content") or "").strip()
-            section = metadata.get("section") or metadata.get("heading") or metadata.get("title")
+            section = (
+                metadata.get("section")
+                or metadata.get("heading")
+                or metadata.get("title")
+            )
             score = cls._source_relevance_score(response_text, content, section=section)
             if score < 0.25:
                 continue
@@ -503,7 +461,9 @@ class ChatbotAgent:
                 },
             }
 
-            if existing is None or score > float((existing.get("metadata") or {}).get("relevance") or 0.0):
+            if existing is None or score > float(
+                (existing.get("metadata") or {}).get("relevance") or 0.0
+            ):
                 scored_sources[citation_key] = candidate
 
         ordered_sources = list(scored_sources.values())
@@ -544,10 +504,6 @@ class ChatbotAgent:
         logger.info(f"Options: use_rag={use_rag}")
 
         try:
-            command = self._parse_form_command(message)
-            if command:
-                return self._handle_form_command(command, session_id, session_manager)
-
             classification = classify_question(message)
             used_rag = False
 
@@ -559,21 +515,32 @@ class ChatbotAgent:
                     if session_manager.has_seen_concept(session_id, concept):
                         repeated_concepts.append(concept)
 
-            history_note = build_history_note(concepts, repeated=bool(repeated_concepts)) if concepts else None
+            history_note = (
+                build_history_note(concepts, repeated=bool(repeated_concepts))
+                if concepts
+                else None
+            )
             recent_citation_keys: set[str] = set()
-            if session_manager is not None and session_id and hasattr(session_manager, "get_recent_source_citation_keys"):
+            if (
+                session_manager is not None
+                and session_id
+                and hasattr(session_manager, "get_recent_source_citation_keys")
+            ):
                 try:
-                    recent_citation_keys = set(session_manager.get_recent_source_citation_keys(session_id))
+                    recent_citation_keys = set(
+                        session_manager.get_recent_source_citation_keys(session_id)
+                    )
                 except Exception:
                     recent_citation_keys = set()
-
 
             rag_hint: Optional[str] = None
             rag_documents: List[Any] = []
 
             if use_rag and self.rag_retriever and self.rag_retriever.has_documents():
                 contextual_message = message
-                conversation_block = self._build_conversation_block(conversation_messages)
+                conversation_block = self._build_conversation_block(
+                    conversation_messages
+                )
                 if conversation_block:
                     contextual_message = (
                         "Contexto conversacional reciente:\n"
@@ -589,8 +556,16 @@ class ChatbotAgent:
                     rag_hint = self.rag_retriever._build_context(rag_documents)
                     used_rag = True
 
-            image_documents = [item for item in (session_documents or []) if self._is_image_document(item)]
-            image_paths = [str(item.get("source") or "") for item in image_documents if item.get("source")]
+            image_documents = [
+                item
+                for item in (session_documents or [])
+                if self._is_image_document(item)
+            ]
+            image_paths = [
+                str(item.get("source") or "")
+                for item in image_documents
+                if item.get("source")
+            ]
 
             if classification.is_project_context:
                 response = self._generate_socratic_response(
@@ -607,7 +582,9 @@ class ChatbotAgent:
                     rag_hint=rag_hint,
                     user_profile_note=user_profile_note,
                 )
-                response = self._generate_multimodal_response(multimodal_prompt, image_paths)
+                response = self._generate_multimodal_response(
+                    multimodal_prompt, image_paths
+                )
             else:
                 response = self._generate_direct_response(
                     message,
@@ -618,7 +595,10 @@ class ChatbotAgent:
                 )
 
             if used_rag:
-                raw_sources = [{"content": doc.page_content, "metadata": doc.metadata} for doc in rag_documents]
+                raw_sources = [
+                    {"content": doc.page_content, "metadata": doc.metadata}
+                    for doc in rag_documents
+                ]
                 filtered_sources = self._filter_relevant_sources(
                     response,
                     raw_sources or [],
@@ -626,7 +606,9 @@ class ChatbotAgent:
                 )
                 if not filtered_sources and raw_sources:
                     filtered_sources = raw_sources
-                sources = self._extract_sources(filtered_sources)[: settings.top_k_results]
+                sources = self._extract_sources(filtered_sources)[
+                    : settings.top_k_results
+                ]
 
             logger.info("Chat response generated successfully")
 
@@ -640,16 +622,7 @@ class ChatbotAgent:
 
         except Exception as e:
             logger.error(f"Error processing chat message: {e}")
-            error_message = str(e)
-            if (
-                self.llm_provider.get_provider_name() == "google"
-                and "quota exceeded" in error_message.lower()
-            ):
-                error_message = (
-                    "Google Gemini quota exceeded for the selected model. "
-                    "Choose another Google model in Config or switch provider "
-                    "(e.g., deepseek/openai), then retry."
-                )
+            error_message = self._format_llm_error(e)
             return {
                 "response": f"I encountered an error: {error_message}",
                 "error": error_message,
@@ -676,23 +649,6 @@ class ChatbotAgent:
 
         classification = classify_question(message)
         rag_hint: Optional[str] = None
-        command = self._parse_form_command(message)
-        if command:
-            payload = self._handle_form_command(command, session_id, session_manager)
-            response = payload.get("response") or ""
-            for token in response.split(" "):
-                if token:
-                    yield {"type": "delta", "content": f"{token} "}
-                    response_parts.append(f"{token} ")
-            yield {
-                "type": "final",
-                "provider": payload.get("provider"),
-                "model": payload.get("model"),
-                "used_rag": False,
-                "sources": [],
-                "response_type": "form",
-            }
-            return
         concepts = extract_concepts(message)
         repeated_concepts: List[str] = []
         if session_manager is not None and session_id and concepts:
@@ -700,11 +656,21 @@ class ChatbotAgent:
                 if session_manager.has_seen_concept(session_id, concept):
                     repeated_concepts.append(concept)
 
-        history_note = build_history_note(concepts, repeated=bool(repeated_concepts)) if concepts else None
+        history_note = (
+            build_history_note(concepts, repeated=bool(repeated_concepts))
+            if concepts
+            else None
+        )
         recent_citation_keys: set[str] = set()
-        if session_manager is not None and session_id and hasattr(session_manager, "get_recent_source_citation_keys"):
+        if (
+            session_manager is not None
+            and session_id
+            and hasattr(session_manager, "get_recent_source_citation_keys")
+        ):
             try:
-                recent_citation_keys = set(session_manager.get_recent_source_citation_keys(session_id))
+                recent_citation_keys = set(
+                    session_manager.get_recent_source_citation_keys(session_id)
+                )
             except Exception:
                 recent_citation_keys = set()
 
@@ -728,8 +694,14 @@ class ChatbotAgent:
                 rag_hint = self.rag_retriever._build_context(rag_documents)
                 used_rag = True
 
-        image_documents = [item for item in (session_documents or []) if self._is_image_document(item)]
-        image_paths = [str(item.get("source") or "") for item in image_documents if item.get("source")]
+        image_documents = [
+            item for item in (session_documents or []) if self._is_image_document(item)
+        ]
+        image_paths = [
+            str(item.get("source") or "")
+            for item in image_documents
+            if item.get("source")
+        ]
 
         if classification.is_project_context:
             response = self._generate_socratic_response(
@@ -769,7 +741,10 @@ class ChatbotAgent:
                 response_parts.append(chunk)
 
         full_response = "".join(response_parts).strip()
-        raw_sources = [{"content": doc.page_content, "metadata": doc.metadata} for doc in rag_documents]
+        raw_sources = [
+            {"content": doc.page_content, "metadata": doc.metadata}
+            for doc in rag_documents
+        ]
         filtered_sources = self._filter_relevant_sources(
             full_response,
             raw_sources or [],
@@ -777,7 +752,9 @@ class ChatbotAgent:
         )
         if not filtered_sources and raw_sources:
             filtered_sources = raw_sources
-        filtered_sources = self._extract_sources(filtered_sources)[: settings.top_k_results]
+        filtered_sources = self._extract_sources(filtered_sources)[
+            : settings.top_k_results
+        ]
 
         yield {
             "type": "final",
@@ -785,7 +762,9 @@ class ChatbotAgent:
             "model": self.llm_provider.model_name,
             "used_rag": used_rag,
             "sources": filtered_sources,
-            "response_type": "socratic" if classification.is_project_context else "direct",
+            "response_type": (
+                "socratic" if classification.is_project_context else "direct"
+            ),
         }
 
     def clear_memory(self):

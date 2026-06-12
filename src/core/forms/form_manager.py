@@ -38,11 +38,15 @@ class FormManager:
             raise KeyError(f"unknown form: {form_id}")
 
         if session_manager is not None:
-            form_state_session.init_session_form(session_manager, session_id, form_id, spec)
+            form_state_session.init_session_form(
+                session_manager, session_id, form_id, spec
+            )
         else:
             form_state.init_session_form(session_id, form_id, spec)
 
-        return self._current_question(session_id, form_id, session_manager=session_manager)
+        return self._current_question(
+            session_id, form_id, session_manager=session_manager
+        )
 
     def answer(
         self,
@@ -78,7 +82,9 @@ class FormManager:
                 value,
                 len(spec.fields),
             )
-            answers = form_state_session.get_answers(session_manager, session_id, form_id)
+            answers = form_state_session.get_answers(
+                session_manager, session_id, form_id
+            )
         else:
             completed = form_state.save_answer(session_id, form_id, name, value)
             answers = form_state.get_answers(session_id, form_id)
@@ -95,7 +101,9 @@ class FormManager:
         return {
             "ok": True,
             "completed": False,
-            "next": self._current_question(session_id, form_id, session_manager=session_manager),
+            "next": self._current_question(
+                session_id, form_id, session_manager=session_manager
+            ),
         }
 
     def _current_question(
@@ -135,7 +143,9 @@ class FormManager:
         }
 
     @staticmethod
-    def _next_applicable_index(spec: FormSpec, start: int, answers: Dict[str, Any]) -> int:
+    def _next_applicable_index(
+        spec: FormSpec, start: int, answers: Dict[str, Any]
+    ) -> int:
         idx = start
         while idx < len(spec.fields):
             field = spec.fields[idx]

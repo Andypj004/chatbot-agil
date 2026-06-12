@@ -129,9 +129,13 @@ def build_user_profile_context(user_profile: Dict[str, Any] | None) -> str:
     if account_type:
         parts.append(f"perfil: {account_type}")
     if declared_level is not None:
-        parts.append(f"nivel declarado: {normalize_agile_level(declared_level)} ({agile_level_label(declared_level)})")
+        parts.append(
+            f"nivel declarado: {normalize_agile_level(declared_level)} ({agile_level_label(declared_level)})"
+        )
     if assessed_level is not None:
         label = assessed_label or agile_level_label(assessed_level)
-        parts.append(f"nivel estimado: {normalize_agile_level(assessed_level)} ({label})")
+        parts.append(
+            f"nivel estimado: {normalize_agile_level(assessed_level)} ({label})"
+        )
 
     return "; ".join(parts)

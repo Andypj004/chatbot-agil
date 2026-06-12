@@ -110,7 +110,9 @@ def classify_question(message: str) -> QuestionClassification:
             matched_signals=knowledge_signals,
         )
 
-    matched_keywords = tuple(keyword for keyword in _PROJECT_KEYWORDS if keyword in normalized)
+    matched_keywords = tuple(
+        keyword for keyword in _PROJECT_KEYWORDS if keyword in normalized
+    )
     matched_patterns = _match_patterns(normalized, _PROJECT_PATTERNS)
 
     signals = matched_keywords + matched_patterns

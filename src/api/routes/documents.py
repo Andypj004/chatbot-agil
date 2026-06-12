@@ -11,6 +11,7 @@ from src.api.dependencies import (
     get_document_processor,
     get_session_manager,
     get_current_user_optional,
+    get_current_admin,
 )
 from src.rag.vector_store import VectorStore
 from src.rag.document_processor import DocumentProcessor
@@ -86,31 +87,36 @@ def _clear_uploaded_files(uploads_dir: Path) -> None:
         file_path.unlink(missing_ok=True)
 
 
-@router.post("/upload", response_model=DocumentUploadResponse, summary="Upload a document")
+@router.post(
+    "/upload", response_model=DocumentUploadResponse, summary="Upload a document"
+)
 async def upload_document(
     file: UploadFile = File(..., description="Document file to upload"),
+    _admin=Depends(get_current_admin),
     vector_store: VectorStore = Depends(get_vector_store),
     doc_processor: DocumentProcessor = Depends(get_document_processor),
 ):
     """Upload a document to the knowledge base
-    
+
     Supported formats: PDF, TXT, DOCX, DOC, MD, PNG, JPG, JPEG, WEBP
-    
+
     The document will be:
     1. Saved to disk
     2. Processed and chunked
     3. Added to the vector database for RAG
-    
+
+    Requires admin privileges.
+
     Args:
         file: Document file
         vector_store: Vector store instance
         doc_processor: Document processor instance
-        
+
     Returns:
         Upload confirmation with document ID
     """
     logger.info(f"Received document upload: {file.filename}")
-    
+
     try:
         extension = Path(file.filename or "").suffix.lower()
         if extension in IMAGE_EXTENSIONS:
@@ -120,20 +126,24 @@ async def upload_document(
             )
 
         # Save uploaded file
-        file_path = await save_uploaded_file(file, destination_dir="data/uploads/global")
-        
+        file_path = await save_uploaded_file(
+            file, destination_dir="data/uploads/global"
+        )
+
         # Process document
         logger.info(f"Processing document: {file_path}")
-        chunks = doc_processor.process_file(file_path, scope=GLOBAL_SCOPE, session_id=None)
-        
+        chunks = doc_processor.process_file(
+            file_path, scope=GLOBAL_SCOPE, session_id=None
+        )
+
         # Generate document IDs
         base_id = _build_document_id(file_path, scope=GLOBAL_SCOPE, session_id=None)
         doc_ids = [f"{base_id}:{i}" for i in range(len(chunks))]
-        
+
         # Add to vector store
         logger.info(f"Adding {len(chunks)} chunks to vector store")
         vector_store.add_documents(chunks, ids=doc_ids)
-        
+
         return DocumentUploadResponse(
             message="Document uploaded and processed successfully",
             filename=file.filename,
@@ -142,13 +152,10 @@ async def upload_document(
             scope=GLOBAL_SCOPE,
             session_id=None,
         )
-        
+
     except ValueError as e:
         logger.error(f"Validation error: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @router.post(
@@ -165,12 +172,17 @@ async def upload_session_document(
     current_user=Depends(get_current_user_optional),
 ):
     """Upload a document restricted to one chat session."""
-    logger.info(f"Received session document upload for session={session_id}: {file.filename}")
+    logger.info(
+        f"Received session document upload for session={session_id}: {file.filename}"
+    )
 
     try:
         owner_id = current_user.get("user_id") if current_user else None
         existing_session = session_manager.get_session_record(session_id)
-        if existing_session is not None and existing_session.get("user_id") not in (None, owner_id):
+        if existing_session is not None and existing_session.get("user_id") not in (
+            None,
+            owner_id,
+        ):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Session {session_id} not found",
@@ -179,14 +191,18 @@ async def upload_session_document(
         session_manager.create_session(session_id, user_id=owner_id)
         destination = f"data/uploads/sessions/{session_id}"
         file_path = await save_uploaded_file(file, destination_dir=destination)
-        base_id = _build_document_id(file_path, scope=SESSION_SCOPE, session_id=session_id)
+        base_id = _build_document_id(
+            file_path, scope=SESSION_SCOPE, session_id=session_id
+        )
         extension = Path(file_path).suffix.lower()
         file_hash = _calculate_file_hash(file_path)
         file_type = extension.lstrip(".") or "unknown"
 
         chunks_created = 0
         if extension not in IMAGE_EXTENSIONS:
-            chunks = doc_processor.process_file(file_path, scope=SESSION_SCOPE, session_id=session_id)
+            chunks = doc_processor.process_file(
+                file_path, scope=SESSION_SCOPE, session_id=session_id
+            )
             doc_ids = [f"{base_id}:{i}" for i in range(len(chunks))]
             vector_store.add_documents(chunks, ids=doc_ids)
             chunks_created = len(chunks)
@@ -225,38 +241,49 @@ async def upload_session_document(
 
 @router.get("", response_model=DocumentListResponse, summary="List all documents")
 async def list_documents(
-    vector_store: VectorStore = Depends(get_vector_store)
+    _admin=Depends(get_current_admin),
+    vector_store: VectorStore = Depends(get_vector_store),
 ):
     """List all documents in the knowledge base
-    
+
+    Requires admin privileges.
+
     Returns:
         List of documents with metadata
     """
     logger.info("Listing documents")
-    
+
     try:
         # Metadata list deduplicated at file-level for global scope.
         documents = [
             DocumentInfo(**item)
-            for item in vector_store.list_indexed_documents(metadata_filter={"scope": GLOBAL_SCOPE})
+            for item in vector_store.list_indexed_documents(
+                metadata_filter={"scope": GLOBAL_SCOPE}
+            )
         ]
         if not documents:
-            documents = _list_uploaded_files_fallback(Path("data/uploads/global"), scope=GLOBAL_SCOPE)
+            documents = _list_uploaded_files_fallback(
+                Path("data/uploads/global"), scope=GLOBAL_SCOPE
+            )
 
         return DocumentListResponse(
             total_documents=len(documents),
             documents=documents,
         )
-        
+
     except Exception as e:
         logger.error(f"Error listing documents: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error listing documents: {str(e)}"
+            detail=f"Error listing documents: {str(e)}",
         )
 
 
-@router.get("/sessions/{session_id}", response_model=DocumentListResponse, summary="List session documents")
+@router.get(
+    "/sessions/{session_id}",
+    response_model=DocumentListResponse,
+    summary="List session documents",
+)
 async def list_session_documents(
     session_id: str,
     session_manager: SessionManager = Depends(get_session_manager),
@@ -268,9 +295,15 @@ async def list_session_documents(
         owner_id = current_user.get("user_id") if current_user else None
         session = session_manager.get_session_record(session_id)
         if session is None or session.get("user_id") not in (None, owner_id):
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Session {session_id} not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Session {session_id} not found",
+            )
 
-        documents = [DocumentInfo(**item) for item in session_manager.list_session_documents(session_id)]
+        documents = [
+            DocumentInfo(**item)
+            for item in session_manager.list_session_documents(session_id)
+        ]
         if not documents:
             documents = _list_uploaded_files_fallback(
                 Path(f"data/uploads/sessions/{session_id}"),
@@ -290,41 +323,48 @@ async def list_session_documents(
 @router.delete("/{document_id}", summary="Delete a document")
 async def delete_document(
     document_id: str,
-    vector_store: VectorStore = Depends(get_vector_store)
+    _admin=Depends(get_current_admin),
+    vector_store: VectorStore = Depends(get_vector_store),
 ):
     """Delete a document from the knowledge base
-    
+
+    Requires admin privileges.
+
     Args:
         document_id: ID of the document to delete
         vector_store: Vector store instance
-        
+
     Returns:
         Deletion confirmation
     """
     logger.info(f"Deleting document: {document_id}")
-    
+
     try:
-        success = vector_store.delete_by_metadata({"scope": GLOBAL_SCOPE, "file_hash": document_id})
+        success = vector_store.delete_by_metadata(
+            {"scope": GLOBAL_SCOPE, "file_hash": document_id}
+        )
         if not success:
             success = vector_store.delete_documents([document_id])
-        
+
         if success:
             return {"message": f"Document {document_id} deleted successfully"}
         else:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Document {document_id} not found"
+                detail=f"Document {document_id} not found",
             )
-            
+
     except Exception as e:
         logger.error(f"Error deleting document: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error deleting document: {str(e)}"
+            detail=f"Error deleting document: {str(e)}",
         )
 
 
-@router.delete("/sessions/{session_id}/{document_id}", summary="Delete one session document")
+@router.delete(
+    "/sessions/{session_id}/{document_id}", summary="Delete one session document"
+)
 async def delete_session_document(
     session_id: str,
     document_id: str,
@@ -333,7 +373,9 @@ async def delete_session_document(
     current_user=Depends(get_current_user_optional),
 ):
     """Delete a session-scoped document by document_id."""
-    logger.info(f"Deleting session document: session={session_id}, document={document_id}")
+    logger.info(
+        f"Deleting session document: session={session_id}, document={document_id}"
+    )
 
     try:
         owner_id = current_user.get("user_id") if current_user else None
@@ -345,7 +387,10 @@ async def delete_session_document(
             )
 
         session_docs = session_manager.list_session_documents(session_id)
-        match = next((item for item in session_docs if item.get("document_id") == document_id), None)
+        match = next(
+            (item for item in session_docs if item.get("document_id") == document_id),
+            None,
+        )
         if match is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -355,14 +400,20 @@ async def delete_session_document(
         file_hash = match.get("file_hash")
         if file_hash:
             vector_store.delete_by_metadata(
-                {"scope": SESSION_SCOPE, "session_id": session_id, "file_hash": file_hash}
+                {
+                    "scope": SESSION_SCOPE,
+                    "session_id": session_id,
+                    "file_hash": file_hash,
+                }
             )
 
         source = match.get("source")
         if source:
             Path(source).unlink(missing_ok=True)
 
-        session_manager.remove_session_document(session_id=session_id, document_id=document_id)
+        session_manager.remove_session_document(
+            session_id=session_id, document_id=document_id
+        )
         return {"message": f"Session document {document_id} deleted successfully"}
     except HTTPException:
         raise
@@ -387,9 +438,14 @@ async def clear_session_documents(
         owner_id = current_user.get("user_id") if current_user else None
         session = session_manager.get_session_record(session_id)
         if session is None or session.get("user_id") not in (None, owner_id):
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Session {session_id} not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Session {session_id} not found",
+            )
 
-        vector_store.delete_by_metadata({"scope": SESSION_SCOPE, "session_id": session_id})
+        vector_store.delete_by_metadata(
+            {"scope": SESSION_SCOPE, "session_id": session_id}
+        )
 
         session_docs = session_manager.list_session_documents(session_id)
         for item in session_docs:
@@ -399,7 +455,10 @@ async def clear_session_documents(
         removed_count = session_manager.clear_session_documents(session_id)
 
         _clear_uploaded_files(Path(f"data/uploads/sessions/{session_id}"))
-        return {"message": "Session documents cleared successfully", "removed": removed_count}
+        return {
+            "message": "Session documents cleared successfully",
+            "removed": removed_count,
+        }
     except Exception as e:
         logger.error(f"Error clearing session documents: {e}")
         raise HTTPException(
@@ -410,35 +469,38 @@ async def clear_session_documents(
 
 @router.delete("", summary="Clear all documents")
 async def clear_documents(
-    vector_store: VectorStore = Depends(get_vector_store)
+    _admin=Depends(get_current_admin),
+    vector_store: VectorStore = Depends(get_vector_store),
 ):
     """Clear all documents from the knowledge base
-    
+
     ⚠️ Warning: This action cannot be undone!
-    
+
+    Requires admin privileges.
+
     Args:
         vector_store: Vector store instance
-        
+
     Returns:
         Confirmation message
     """
     logger.warning("Clearing all documents")
-    
+
     try:
         success = vector_store.delete_by_metadata({"scope": GLOBAL_SCOPE})
         _clear_uploaded_files(Path("data/uploads/global"))
-        
+
         if success:
             return {"message": "All documents cleared successfully"}
         else:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to clear documents"
+                detail="Failed to clear documents",
             )
-            
+
     except Exception as e:
         logger.error(f"Error clearing documents: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error clearing documents: {str(e)}"
+            detail=f"Error clearing documents: {str(e)}",
         )

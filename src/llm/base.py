@@ -5,14 +5,14 @@ from typing import Any, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     # Accept both chat models (BaseChatModel) and completion LLMs (BaseLLM).
-    from langchain.schema.language_model import BaseLanguageModel
+    from langchain_core.language_models import BaseLanguageModel
 else:
     BaseLanguageModel = Any
 
 
 class BaseLLMProvider(ABC):
     """Abstract base class for LLM providers"""
-    
+
     def __init__(
         self,
         api_key: str,
@@ -22,7 +22,7 @@ class BaseLLMProvider(ABC):
         **kwargs
     ):
         """Initialize LLM provider
-        
+
         Args:
             api_key: API key for the provider
             model_name: Name of the model to use
@@ -36,8 +36,8 @@ class BaseLLMProvider(ABC):
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.kwargs = kwargs
-        self._llm: Optional[BaseChatModel] = None
-    
+        self._llm: Optional[BaseLanguageModel] = None
+
     @abstractmethod
     def get_llm(self) -> BaseLanguageModel:
         """Get the LangChain language model instance.
@@ -46,27 +46,27 @@ class BaseLLMProvider(ABC):
         or a ``BaseLLM`` for local providers (Ollama). Both support ``invoke()``.
         """
         pass
-    
+
     @abstractmethod
     def get_provider_name(self) -> str:
         """Get the provider name
-        
+
         Returns:
             Provider name string
         """
         pass
-    
+
     def get_default_model(self) -> str:
         """Get the default model for this provider
-        
+
         Returns:
             Default model name
         """
         return self.model_name
-    
+
     def validate_api_key(self) -> bool:
         """Validate that the API key is set
-        
+
         Returns:
             True if API key is valid, False otherwise
         """

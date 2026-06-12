@@ -13,7 +13,7 @@ logger = get_logger()
 
 class LLMFactory:
     """Factory class for creating LLM provider instances"""
-    
+
     _providers = {}
     _provider_aliases = {
         "claude": "anthropic",
@@ -30,7 +30,14 @@ class LLMFactory:
             "gemini-pro",
         ],
         "deepseek": ["deepseek-chat", "deepseek-reasoner"],
-        "ollama": ["llama3.2:3b", "qwen2.5:3b", "phi3:mini", "llava:7b", "llava:13b", "gemma3:4b"],
+        "ollama": [
+            "llama3.2:3b",
+            "qwen2.5:3b",
+            "phi3:mini",
+            "llava:7b",
+            "llava:13b",
+            "gemma3:4b",
+        ],
     }
 
     # Load external models catalog if available (src/llm/models.json)
@@ -41,25 +48,31 @@ class LLMFactory:
                 _external = json.load(_f)
                 if isinstance(_external, dict):
                     # sanitize: only lists
-                    cleaned = {k: v for k, v in _external.items() if isinstance(v, list)}
+                    cleaned = {
+                        k: v for k, v in _external.items() if isinstance(v, list)
+                    }
                     if cleaned:
                         _provider_models.clear()
                         _provider_models.update(cleaned)
-                        logger.info("Loaded external LLM model catalog from src/llm/models.json")
+                        logger.info(
+                            "Loaded external LLM model catalog from src/llm/models.json"
+                        )
     except Exception:
-        logger.warning("Failed to load external models catalog; using builtin provider list")
-    
+        logger.warning(
+            "Failed to load external models catalog; using builtin provider list"
+        )
+
     @classmethod
     def register_provider(cls, name: str, provider_class: type):
         """Register a new LLM provider
-        
+
         Args:
             name: Provider name (e.g., 'openai', 'anthropic')
             provider_class: Provider class to register
         """
         cls._providers[name.lower()] = provider_class
         logger.info(f"Registered LLM provider: {name}")
-    
+
     @classmethod
     def create_provider(
         cls,
@@ -67,34 +80,34 @@ class LLMFactory:
         model_name: Optional[str] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
-        **kwargs
+        **kwargs,
     ) -> BaseLLMProvider:
         """Create an LLM provider instance
-        
+
         Args:
             provider_name: Name of the provider (defaults to settings)
             model_name: Model name (defaults to provider default)
             temperature: Sampling temperature
             max_tokens: Maximum tokens to generate
             **kwargs: Additional provider-specific parameters
-            
+
         Returns:
             Configured BaseLLMProvider instance
-            
+
         Raises:
             ValueError: If provider is not registered or API key is missing
         """
         # Use defaults from settings if not provided
         provider_name = provider_name or settings.default_llm_provider
         provider_name = cls.normalize_provider_name(provider_name)
-        
+
         if provider_name not in cls._providers:
             available = ", ".join(cls._providers.keys())
             raise ValueError(
                 f"Provider '{provider_name}' is not registered. "
                 f"Available providers: {available}"
             )
-        
+
         # Get API key for the provider
         api_key = settings.get_api_key(provider_name)
         if not api_key:
@@ -102,10 +115,10 @@ class LLMFactory:
                 f"API key for provider '{provider_name}' is not configured. "
                 f"Please set it in the .env file."
             )
-        
+
         # Get provider class and create instance
         provider_class = cls._providers[provider_name]
-        
+
         # Use settings defaults if not provided
         temperature = temperature if temperature is not None else settings.temperature
         max_tokens = max_tokens if max_tokens is not None else settings.max_tokens
@@ -113,7 +126,7 @@ class LLMFactory:
             temperature=temperature,
             max_tokens=max_tokens,
         )
-        
+
         # Determine model name
         if model_name is None:
             # Use default model from settings or provider default
@@ -125,27 +138,27 @@ class LLMFactory:
                     f"Model '{model_name}' is not supported for provider "
                     f"'{provider_name}'. Available models: {', '.join(provider_models)}"
                 )
-        
+
         logger.info(
             f"Creating {provider_name} provider with model: {model_name}, "
             f"temperature: {temperature}, max_tokens: {max_tokens}"
         )
-        
+
         return provider_class(
             api_key=api_key,
             model_name=model_name,
             temperature=temperature,
             max_tokens=max_tokens,
-            **kwargs
+            **kwargs,
         )
-    
+
     @classmethod
     def _get_default_model_for_provider(cls, provider_name: str) -> str:
         """Get default model for a provider
-        
+
         Args:
             provider_name: Name of the provider
-            
+
         Returns:
             Default model name
         """
@@ -169,11 +182,11 @@ class LLMFactory:
         """Normalize provider aliases to a canonical provider name."""
         name = provider_name.lower()
         return cls._provider_aliases.get(name, name)
-    
+
     @classmethod
     def get_available_providers(cls) -> list:
         """Get list of available providers
-        
+
         Returns:
             List of registered provider names
         """
@@ -190,7 +203,9 @@ class LLMFactory:
     def get_available_models(cls) -> dict:
         """Get model catalog for currently available canonical providers."""
         providers = cls.get_available_providers()
-        return {provider: cls._provider_models.get(provider, []) for provider in providers}
+        return {
+            provider: cls._provider_models.get(provider, []) for provider in providers
+        }
 
 
 # Auto-register providers on import
@@ -198,32 +213,37 @@ def _register_providers():
     """Register all available providers"""
     try:
         from src.llm.providers.openai_provider import OpenAIProvider
+
         LLMFactory.register_provider("openai", OpenAIProvider)
     except ImportError:
         logger.warning("OpenAI provider not available")
-    
+
     try:
         from src.llm.providers.anthropic_provider import AnthropicProvider
+
         LLMFactory.register_provider("anthropic", AnthropicProvider)
         LLMFactory.register_provider("claude", AnthropicProvider)
     except ImportError:
         logger.warning("Anthropic provider not available")
-    
+
     try:
         from src.llm.providers.google_provider import GoogleProvider
+
         LLMFactory.register_provider("google", GoogleProvider)
         LLMFactory.register_provider("gemini", GoogleProvider)
     except ImportError:
         logger.warning("Google provider not available")
-    
+
     try:
         from src.llm.providers.deepseek_provider import DeepseekProvider
+
         LLMFactory.register_provider("deepseek", DeepseekProvider)
     except ImportError:
         logger.warning("Deepseek provider not available")
 
     try:
         from src.llm.providers.ollama_provider import OllamaProvider
+
         LLMFactory.register_provider("ollama", OllamaProvider)
     except ImportError:
         logger.warning("Ollama provider not available")

@@ -62,13 +62,19 @@ class PromptManager:
     ) -> str:
         parts = [BASE_SYSTEM_PROMPT]
         if user_profile_note:
-            parts.append(_format_context_block("Perfil del usuario", [user_profile_note]))
+            parts.append(
+                _format_context_block("Perfil del usuario", [user_profile_note])
+            )
         if rag_hint:
             parts.append(_format_context_block("Contexto verificado", [rag_hint]))
         if history_note:
             parts.append(_format_context_block("Memoria de la sesion", [history_note]))
         if conversation_block:
-            parts.append(_format_context_block("Contexto conversacional reciente", [conversation_block]))
+            parts.append(
+                _format_context_block(
+                    "Contexto conversacional reciente", [conversation_block]
+                )
+            )
         parts.append(f"Pregunta actual: {message}")
         parts.append("Respuesta natural y útil:")
         return "\n\n".join(part for part in parts if part)
@@ -88,13 +94,21 @@ class PromptManager:
             "No hagas referencia al contexto de forma explícita; habla directamente al estudiante."
         )
         if user_profile_note:
-            parts.append(_format_context_block("Perfil del usuario", [user_profile_note]))
+            parts.append(
+                _format_context_block("Perfil del usuario", [user_profile_note])
+            )
         if rag_hint:
-            parts.append(_format_context_block("Conocimiento de referencia", [rag_hint]))
+            parts.append(
+                _format_context_block("Conocimiento de referencia", [rag_hint])
+            )
         if history_note:
             parts.append(_format_context_block("Memoria de la sesion", [history_note]))
         if conversation_block:
-            parts.append(_format_context_block("Contexto conversacional reciente", [conversation_block]))
+            parts.append(
+                _format_context_block(
+                    "Contexto conversacional reciente", [conversation_block]
+                )
+            )
         parts.append(f"Situacion del estudiante: {message}")
         parts.append(
             "Genera de 3 a 5 preguntas socraticas concretas y orientadas al proyecto, evitando repeticiones y manteniendo un tono de apoyo. "

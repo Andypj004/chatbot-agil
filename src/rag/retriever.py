@@ -10,11 +10,9 @@ from src.core.config import settings
 from src.core.logger import get_logger
 
 if TYPE_CHECKING:
-    from langchain.chains import RetrievalQA
-    from langchain.prompts import PromptTemplate
-    from langchain.schema import Document
+    from langchain_core.prompts import PromptTemplate
+    from langchain_core.documents import Document
 else:
-    RetrievalQA = Any
     PromptTemplate = Any
     Document = Any
 
@@ -23,7 +21,7 @@ logger = get_logger()
 
 class RAGRetriever:
     """Retrieval-Augmented Generation system"""
-    
+
     DEFAULT_PROMPT_TEMPLATE = """Eres un experto en metodologías ágiles. Responde siempre en español, de forma clara, directa y educativa.
 Usa el siguiente conocimiento para fundamentar tu respuesta. Habla con autoridad propia sin mencionar ni insinuar que tienes un "contexto" o "documentos".
 
@@ -33,16 +31,16 @@ Conocimiento:
 Pregunta: {question}
 
 Respuesta:"""
-    
+
     def __init__(
         self,
         vector_store: VectorStore,
         llm_provider: BaseLLMProvider,
         prompt_template: Optional[str] = None,
-        top_k: Optional[int] = None
+        top_k: Optional[int] = None,
     ):
         """Initialize RAG retriever
-        
+
         Args:
             vector_store: VectorStore instance
             llm_provider: LLM provider instance
@@ -53,15 +51,14 @@ Respuesta:"""
         self.llm_provider = llm_provider
         self.top_k = top_k or settings.top_k_results
 
-        from langchain.prompts import PromptTemplate as LangChainPromptTemplate
-        
+        from langchain_core.prompts import PromptTemplate as LangChainPromptTemplate
+
         # Set up prompt
         self.prompt_template = prompt_template or self.DEFAULT_PROMPT_TEMPLATE
         self.prompt = LangChainPromptTemplate(
-            template=self.prompt_template,
-            input_variables=["context", "question"]
+            template=self.prompt_template, input_variables=["context", "question"]
         )
-        
+
         logger.info(f"RAG retriever initialized with top_k={self.top_k}")
 
     def has_documents(self) -> bool:
@@ -88,7 +85,7 @@ Respuesta:"""
             current_chars += len(snippet) + 2
 
         return "\n\n".join(context_parts)
-    
+
     def retrieve_documents(
         self,
         query: str,
@@ -97,18 +94,18 @@ Respuesta:"""
         session_id: Optional[str] = None,
     ) -> List[Document]:
         """Retrieve relevant documents for a query
-        
+
         Args:
             query: Query string
             k: Number of documents to retrieve (overrides default)
             filter: Optional metadata filter
-            
+
         Returns:
             List of relevant documents
         """
         k = k or self.top_k
         logger.info(f"Retrieving documents for query: '{query}'")
-        
+
         if filter is not None:
             return self.vector_store.similarity_search(
                 query=query,
@@ -116,7 +113,9 @@ Respuesta:"""
                 filter=filter,
             )
 
-        return self._retrieve_combined_documents(query=query, k=k, session_id=session_id)
+        return self._retrieve_combined_documents(
+            query=query, k=k, session_id=session_id
+        )
 
     @staticmethod
     def _normalize_scope(metadata: Dict[str, Any]) -> str:
@@ -147,7 +146,9 @@ Respuesta:"""
     @classmethod
     def _ranking_keywords(cls, query: str) -> List[str]:
         normalized = cls._normalize_for_ranking(query)
-        keywords = {token for token in re.findall(r"\b\w+\b", normalized) if len(token) > 2}
+        keywords = {
+            token for token in re.findall(r"\b\w+\b", normalized) if len(token) > 2
+        }
         return sorted(keywords, key=len, reverse=True)
 
     @classmethod
@@ -161,7 +162,9 @@ Respuesta:"""
         if not query_norm or not haystack.strip():
             return 0.0
 
-        query_tokens = [token for token in re.findall(r"\b\w+\b", query_norm) if len(token) > 2]
+        query_tokens = [
+            token for token in re.findall(r"\b\w+\b", query_norm) if len(token) > 2
+        ]
         if not query_tokens:
             return 0.0
 
@@ -187,12 +190,16 @@ Respuesta:"""
 
         return score
 
-    def _retrieve_combined_documents(self, query: str, k: int, session_id: Optional[str]) -> List[Document]:
+    def _retrieve_combined_documents(
+        self, query: str, k: int, session_id: Optional[str]
+    ) -> List[Document]:
         """Retrieve global docs always, plus session docs when session_id is available."""
         global_quota = max(1, int(round(k * 0.6)))
         session_quota = max(0, k - global_quota)
 
-        logger.debug(f"_retrieve_combined_documents: k={k}, global_quota={global_quota}, session_quota={session_quota}")
+        logger.debug(
+            f"_retrieve_combined_documents: k={k}, global_quota={global_quota}, session_quota={session_quota}"
+        )
 
         overfetch_global = max(k * 4, global_quota * 4, 12)
         global_results = self.vector_store.similarity_search_with_score(
@@ -218,17 +225,24 @@ Respuesta:"""
         max_per_file = getattr(settings, "rag_max_chunks_per_file", 3)
         candidate_entries: dict[str, tuple[Document, float, str]] = {}
 
-        def _ingest_results(results: List[tuple[Document, float]], source_name: str) -> None:
+        def _ingest_results(
+            results: List[tuple[Document, float]], source_name: str
+        ) -> None:
             for rank, (doc, _score) in enumerate(results):
                 metadata = doc.metadata or {}
-                if source_name == "session" and self._normalize_scope(metadata) != "session_chat":
+                if (
+                    source_name == "session"
+                    and self._normalize_scope(metadata) != "session_chat"
+                ):
                     continue
 
                 key = self._doc_key(doc)
                 if not key:
                     continue
 
-                file_key = str(metadata.get("file_hash") or metadata.get("filename") or "unknown")
+                file_key = str(
+                    metadata.get("file_hash") or metadata.get("filename") or "unknown"
+                )
                 base_score = 1.0 / (rank + 1)
                 alignment_score = self._query_alignment_score(query, doc)
                 total_score = base_score + alignment_score
@@ -244,7 +258,9 @@ Respuesta:"""
                 metadata = doc.metadata or {}
                 if not key:
                     continue
-                file_key = str(metadata.get("file_hash") or metadata.get("filename") or "unknown")
+                file_key = str(
+                    metadata.get("file_hash") or metadata.get("filename") or "unknown"
+                )
                 alignment_score = self._query_alignment_score(query, doc)
                 existing = candidate_entries.get(key)
                 total_score = alignment_score + 0.5
@@ -300,56 +316,54 @@ Respuesta:"""
             f"_retrieve_combined_documents: returned {len(merged)} docs from {len(per_file_counts)} files"
         )
         return merged
-    
+
     def retrieve_with_scores(
         self,
         query: str,
         k: Optional[int] = None,
-        filter: Optional[Dict[str, Any]] = None
+        filter: Optional[Dict[str, Any]] = None,
     ) -> List[tuple[Document, float]]:
         """Retrieve relevant documents with relevance scores
-        
+
         Args:
             query: Query string
             k: Number of documents to retrieve
             filter: Optional metadata filter
-            
+
         Returns:
             List of tuples (document, score)
         """
         k = k or self.top_k
         logger.info(f"Retrieving documents with scores for query: '{query}'")
-        
+
         results = self.vector_store.similarity_search_with_score(
-            query=query,
-            k=k,
-            filter=filter
+            query=query, k=k, filter=filter
         )
-        
+
         return results
-    
+
     def query(
         self,
         question: str,
         k: Optional[int] = None,
         filter: Optional[Dict[str, Any]] = None,
         session_id: Optional[str] = None,
-        return_sources: bool = False
+        return_sources: bool = False,
     ) -> Dict[str, Any]:
         """Query the RAG system
-        
+
         Args:
             question: Question to answer
             k: Number of documents to retrieve
             filter: Optional metadata filter
             return_sources: Whether to return source documents
-            
+
         Returns:
             Dictionary with answer and optional sources
         """
         logger.info(f"Processing RAG query: '{question}'")
         effective_k = k or self.top_k
-        
+
         # Retrieve relevant documents
         documents = self.retrieve_documents(
             query=question,
@@ -357,14 +371,14 @@ Respuesta:"""
             filter=filter,
             session_id=session_id,
         )
-        
+
         if not documents:
             logger.warning("No relevant documents found")
             return {
                 "answer": "No encontré información relevante en los documentos para responder esa pregunta.",
-                "sources": [] if return_sources else None
+                "sources": [] if return_sources else None,
             }
-        
+
         # Format context from documents
         context = self._build_context(documents)
         if not context:
@@ -373,21 +387,18 @@ Respuesta:"""
                 "answer": "No encontré información relevante en los documentos para responder esa pregunta.",
                 "sources": [] if return_sources else None,
             }
-        
+
         # Generate answer using LLM
         llm = self.llm_provider.get_llm()
         formatted_prompt = self.prompt.format(context=context, question=question)
-        
+
         logger.info(f"Generating answer using {self.llm_provider.get_provider_name()}")
         result = llm.invoke(formatted_prompt)
         # BaseChatModel.invoke() returns AIMessage; BaseLLM.invoke() returns str.
-        response = result.content if hasattr(result, "content") else result
-        
-        result = {
-            "answer": response.strip(),
-            "num_sources": len(documents)
-        }
-        
+        response = str(result.text) if hasattr(result, "text") else result
+
+        result = {"answer": response.strip(), "num_sources": len(documents)}
+
         if return_sources:
             source_k = max(effective_k, effective_k * 4)
             source_documents = self.retrieve_documents(
@@ -397,39 +408,9 @@ Respuesta:"""
                 session_id=session_id,
             )
             result["sources"] = [
-                {
-                    "content": doc.page_content,
-                    "metadata": doc.metadata
-                }
+                {"content": doc.page_content, "metadata": doc.metadata}
                 for doc in source_documents
             ]
-        
+
         logger.info("RAG query completed successfully")
         return result
-    
-    def create_qa_chain(self, chain_type: str = "stuff") -> RetrievalQA:
-        """Create a LangChain RetrievalQA chain
-        
-        Args:
-            chain_type: Type of chain ('stuff', 'map_reduce', 'refine', 'map_rerank')
-            
-        Returns:
-            RetrievalQA chain
-        """
-        logger.info(f"Creating QA chain with type: {chain_type}")
-
-        from langchain.chains import RetrievalQA as LangChainRetrievalQA
-        
-        retriever = self.vector_store.vectorstore.as_retriever(
-            search_kwargs={"k": self.top_k}
-        )
-        
-        qa_chain = LangChainRetrievalQA.from_chain_type(
-            llm=self.llm_provider.get_llm(),
-            chain_type=chain_type,
-            retriever=retriever,
-            return_source_documents=True,
-            chain_type_kwargs={"prompt": self.prompt}
-        )
-        
-        return qa_chain

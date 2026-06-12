@@ -39,7 +39,11 @@ class DebugCombinedRAGRequest(APIBaseModel):
     filter: Optional[Dict[str, Any]] = None
 
 
-@router.post("/rag/combined", response_model=DebugRAGResponse, summary="Debug: retrieve combined RAG documents")
+@router.post(
+    "/rag/combined",
+    response_model=DebugRAGResponse,
+    summary="Debug: retrieve combined RAG documents",
+)
 def debug_rag_combined(
     request: DebugCombinedRAGRequest,
     retriever: RAGRetriever = Depends(get_rag_retriever),
@@ -61,13 +65,19 @@ def debug_rag_combined(
     items = []
     for doc in documents:
         excerpt = (doc.page_content or "")[:800]
-        items.append(DebugRAGItem(score=0.0, excerpt=excerpt, metadata=doc.metadata or {}))
+        items.append(
+            DebugRAGItem(score=0.0, excerpt=excerpt, metadata=doc.metadata or {})
+        )
 
     total = retriever.vector_store.get_collection_count()
     return DebugRAGResponse(total_documents=total, retrieved=items)
 
 
-@router.post("/rag", response_model=DebugRAGResponse, summary="Debug: retrieve RAG documents with scores")
+@router.post(
+    "/rag",
+    response_model=DebugRAGResponse,
+    summary="Debug: retrieve RAG documents with scores",
+)
 def debug_rag(
     request: DebugRAGRequest,
     retriever: RAGRetriever = Depends(get_rag_retriever),
@@ -82,7 +92,9 @@ def debug_rag(
     k = request.k or retriever.top_k or 10
 
     try:
-        results = retriever.retrieve_with_scores(query=request.query, k=k, filter=request.filter)
+        results = retriever.retrieve_with_scores(
+            query=request.query, k=k, filter=request.filter
+        )
     except Exception as e:
         logger.error(f"Error in retrieve_with_scores: {e}")
         results = []
@@ -90,7 +102,9 @@ def debug_rag(
     items = []
     for doc, score in results:
         excerpt = (doc.page_content or "")[:800]
-        items.append(DebugRAGItem(score=score, excerpt=excerpt, metadata=doc.metadata or {}))
+        items.append(
+            DebugRAGItem(score=score, excerpt=excerpt, metadata=doc.metadata or {})
+        )
 
     total = retriever.vector_store.get_collection_count()
 

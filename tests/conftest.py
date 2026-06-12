@@ -33,6 +33,7 @@ def sample_text_file(test_data_dir):
 def mock_settings():
     """Mock settings for testing"""
     from unittest.mock import Mock
+
     settings = Mock()
     settings.default_llm_provider = "openai"
     settings.default_model = "gpt-4"

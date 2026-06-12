@@ -17,7 +17,9 @@ def _as_int(value: Any) -> Tuple[bool, int]:
 
 
 def validate_field(field: Dict[str, Any], value: Any) -> Tuple[bool, str]:
-    if field.get("required") and (value is None or (isinstance(value, str) and value.strip() == "")):
+    if field.get("required") and (
+        value is None or (isinstance(value, str) and value.strip() == "")
+    ):
         return False, "value required"
 
     typ = field.get("type")
@@ -73,7 +75,9 @@ def validate_field(field: Dict[str, Any], value: Any) -> Tuple[bool, str]:
     return True, ""
 
 
-def run_validator(validator_name: str, value: Any, field: Dict[str, Any]) -> Tuple[bool, str]:
+def run_validator(
+    validator_name: str, value: Any, field: Dict[str, Any]
+) -> Tuple[bool, str]:
     if validator_name == "non_empty_str":
         if isinstance(value, str) and value.strip():
             return True, ""
@@ -82,7 +86,9 @@ def run_validator(validator_name: str, value: Any, field: Dict[str, Any]) -> Tup
     return validate_field(field, value)
 
 
-def validate_cross_fields(cross_validators: list[Dict[str, Any]], answers: Dict[str, Any]) -> Tuple[bool, str]:
+def validate_cross_fields(
+    cross_validators: list[Dict[str, Any]], answers: Dict[str, Any]
+) -> Tuple[bool, str]:
     for rule in cross_validators:
         name = rule.get("name")
         if name == "lte_field":
@@ -95,7 +101,11 @@ def validate_cross_fields(cross_validators: list[Dict[str, Any]], answers: Dict[
             if not ok_left or not ok_right:
                 return False, "cross validation expects numeric fields"
             if left_val > right_val:
-                return False, rule.get("message") or f"{rule.get('field')} must be <= {rule.get('other')}"
+                return (
+                    False,
+                    rule.get("message")
+                    or f"{rule.get('field')} must be <= {rule.get('other')}",
+                )
         elif name == "gte_field":
             left = answers.get(rule.get("field"))
             right = answers.get(rule.get("other"))
@@ -106,7 +116,11 @@ def validate_cross_fields(cross_validators: list[Dict[str, Any]], answers: Dict[
             if not ok_left or not ok_right:
                 return False, "cross validation expects numeric fields"
             if left_val < right_val:
-                return False, rule.get("message") or f"{rule.get('field')} must be >= {rule.get('other')}"
+                return (
+                    False,
+                    rule.get("message")
+                    or f"{rule.get('field')} must be >= {rule.get('other')}",
+                )
         elif name == "require_if":
             field = rule.get("field")
             when_field = rule.get("when_field")
