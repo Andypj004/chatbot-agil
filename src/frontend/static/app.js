@@ -1994,12 +1994,6 @@ function App() {
                 <button className="toolbar-chip" onClick={handleSessionUploadClick} disabled={isUploadingSessionDocs} title="Adjuntar archivo">
                   📎 Adjuntar
                 </button>
-                <select className="toolbar-model-select" value={provider} onChange={(e) => setProvider(e.target.value)}>
-                  {(providers || []).map((item) => <option key={item} value={item}>{item}</option>)}
-                </select>
-                <select className="toolbar-model-select" value={model} onChange={(e) => setModel(e.target.value)}>
-                  {(modelsForCurrentProvider || []).map((item) => <option key={item} value={item}>{item}</option>)}
-                </select>
               </div>
               <button className="send-btn" onClick={sendMessage} disabled={isSending} title={isSending ? "Generando..." : "Enviar"} aria-label={isSending ? "Generando respuesta" : "Enviar mensaje"}>
                 {isSending ? "…" : "↑"}

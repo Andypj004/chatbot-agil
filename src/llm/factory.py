@@ -97,8 +97,10 @@ class LLMFactory:
         Raises:
             ValueError: If provider is not registered or API key is missing
         """
-        # Use defaults from settings if not provided
-        provider_name = provider_name or settings.default_llm_provider
+        # Pilot lock: this branch only serves the configured default
+        # provider/model, regardless of what the caller requests.
+        provider_name = settings.default_llm_provider
+        model_name = settings.default_model
         provider_name = cls.normalize_provider_name(provider_name)
 
         if provider_name not in cls._providers:
@@ -187,25 +189,23 @@ class LLMFactory:
     def get_available_providers(cls) -> list:
         """Get list of available providers
 
+        Pilot lock: this branch only advertises the configured default
+        provider, since users cannot switch provider/model.
+
         Returns:
-            List of registered provider names
+            List containing the configured default provider name
         """
-        canonical_providers = {
-            cls.normalize_provider_name(provider_name)
-            for provider_name in cls._providers.keys()
-        }
-        preferred_order = ["openai", "anthropic", "google", "deepseek", "ollama"]
-        ordered = [p for p in preferred_order if p in canonical_providers]
-        extras = sorted([p for p in canonical_providers if p not in preferred_order])
-        return ordered + extras
+        return [cls.normalize_provider_name(settings.default_llm_provider)]
 
     @classmethod
     def get_available_models(cls) -> dict:
-        """Get model catalog for currently available canonical providers."""
-        providers = cls.get_available_providers()
-        return {
-            provider: cls._provider_models.get(provider, []) for provider in providers
-        }
+        """Get model catalog for currently available canonical providers.
+
+        Pilot lock: only the configured default model is advertised for
+        the configured default provider.
+        """
+        provider = cls.normalize_provider_name(settings.default_llm_provider)
+        return {provider: [settings.default_model]}
 
 
 # Auto-register providers on import
