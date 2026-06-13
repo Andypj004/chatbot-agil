@@ -1543,7 +1543,7 @@ function App() {
       <aside className={`history-sidebar ${sidebarOpen ? "" : "collapsed"}`}>
         <div className="sidebar-header">
           {sidebarOpen
-            ? <span className="sidebar-logo">AGILE</span>
+            ? <span className="sidebar-logo">CHATBOT AGIL</span>
             : <button className="sidebar-toggle" onClick={() => setSidebarOpen(true)} title="Abrir menú" aria-label="Abrir menú">☰</button>
           }
           {sidebarOpen && (
@@ -1810,7 +1810,7 @@ function App() {
                   )}
 
                   {registerStep === 4 && (
-                    <div className="level-selector" role="radiogroup" aria-label="Nivel de conocimiento ágil">
+                    <div className="level-selector" role="radiogroup" aria-label="¿Cuál es tu nivel de conocimiento ágil?">
                       {[
                         { level: 1, text: "Principiante — No conozco las metodologías ágiles" },
                         { level: 2, text: "Básico — Conozco los conceptos fundamentales" },
