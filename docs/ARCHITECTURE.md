@@ -50,7 +50,7 @@ El sistema es un chatbot tutor de metodologías ágiles que responde siempre en 
 ┌────────────────────────────▼─────────────────────────────────┐
 │                      CAPA API (FastAPI)                       │
 │  auth · chat · sessions · documents · config · health        │
-│  forms · debug                                               │
+│  forms · debug · admin                                       │
 │  Modelos Pydantic v2 · CORS · Dependency Injection           │
 └────────────────────────────┬─────────────────────────────────┘
                              │
@@ -118,7 +118,7 @@ reset_runtime_caches() → limpia ambos caches (llama al actualizar config)
 
 | Archivo | Prefijo | Responsabilidad |
 |---|---|---|
-| `auth.py` | `/auth` | Registro, login, perfil del usuario autenticado |
+| `auth.py` | `/auth` | Registro, login, perfil del usuario autenticado, eliminación de cuenta |
 | `chat.py` | `/chat` | Chat síncrono y streaming SSE |
 | `sessions.py` | `/sessions` | CRUD de sesiones y historial de mensajes |
 | `documents.py` | `/documents` | Subida y gestión de documentos globales y de sesión |
@@ -126,6 +126,7 @@ reset_runtime_caches() → limpia ambos caches (llama al actualizar config)
 | `health.py` | `/health` | Estado del servicio y conteo de documentos |
 | `forms.py` | `/forms` | Cuestionario de evaluación ágil (`agile_adoption_assessment`) |
 | `debug.py` | `/debug` | Inspección de resultados RAG (solo desarrollo) |
+| `admin.py` | `/admin` | Gestión de usuarios (solo administradores): listado y eliminación |
 
 ### 3.2 Capa de orquestación — `src/agents/`
 
@@ -160,8 +161,8 @@ Define la interfaz común:
 ```json
 {
   "openai":    ["gpt-4o-mini", "gpt-4-turbo-preview", "gpt-3.5-turbo"],
-  "anthropic": ["claude-haiku-4-5", "claude-3-5-haiku-latest", "claude-3-5-sonnet-latest"],
-  "google":    ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite", ...],
+  "anthropic": ["claude-3-5-haiku-latest", "claude-3-5-sonnet-latest"],
+  "google":    ["gemini-1.5-flash", "gemini-1.5-flash-8b", "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-pro"],
   "deepseek":  ["deepseek-chat", "deepseek-reasoner"],
   "ollama":    ["llama3.2:3b", "qwen2.5:3b", "phi3:mini", "llava:7b", "llava:13b", "gemma3:4b"]
 }
@@ -175,9 +176,9 @@ Define la interfaz común:
 | `anthropic_provider.py` | `AnthropicProvider` | `ChatAnthropic` |
 | `google_provider.py` | `GoogleProvider` | `ChatGoogleGenerativeAI` |
 | `deepseek_provider.py` | `DeepseekProvider` | `ChatOpenAI` (endpoint DeepSeek) |
-| `ollama_provider.py` | `OllamaProvider` | `Ollama` (BaseLLM) |
+| `ollama_provider.py` | `OllamaProvider` | `OllamaLLM` (langchain_ollama) |
 
-Los proveedores cloud envuelven `BaseChatModel` de LangChain; Ollama envuelve `BaseLLM`. Ambos exponen `invoke()` con la misma firma.
+Los proveedores cloud envuelven `BaseChatModel` de LangChain; Ollama envuelve `BaseLLM` vía `langchain-ollama`. Ambos exponen `invoke()` con la misma firma.
 
 ### 3.4 Capa RAG — `src/rag/`
 
@@ -346,12 +347,13 @@ Módulo de clasificación basado en reglas léxicas. Determina el modo de respue
 | `UserRegistrationRequest` | → entrada | email, password, full_name, account_type, knowledge_level, questionnaire_answers |
 | `UserLoginRequest` | → entrada | email, password |
 | `AuthResponse` | ← salida | access_token, token_type, user (UserProfileResponse) |
-| `UserProfileResponse` | ← salida | Perfil completo del usuario con nivel ágil |
+| `UserProfileResponse` | ← salida | Perfil completo del usuario con nivel ágil e indicador `is_admin` |
+| `UserListResponse` | ← salida | total + lista de `UserProfileResponse` (solo admin) |
 | `QuestionnaireAnswer` | → entrada | question_number (1–5), answer (a\|b\|c\|d) |
 | `DocumentUploadResponse` | ← salida | filename, document_id, chunks_created, scope, session_id |
 | `SessionSummary` | ← salida | session_id, title, message_count, last_message, timestamps |
 | `SessionHistoryResponse` | ← salida | messages paginados con metadata |
-| `ConfigUpdateRequest` | → entrada | provider, model, temperature, max_tokens |
+| `ConfigUpdateRequest` | → entrada | llm_provider, model_name, temperature, max_tokens |
 | `ConfigResponse` | ← salida | Config activa + catálogos de proveedores y modelos |
 | `HealthResponse` | ← salida | status, version, proveedores, rag_status, vector_store_documents |
 
@@ -744,15 +746,16 @@ El sistema puntúa cada fuente contra el texto generado (overlap de tokens + fra
 | Pydantic | 2.13 | Validación y modelos |
 | pydantic-settings | 2.14 | Carga de configuración |
 | LangChain | 1.3 | Abstracción LLM y splitters |
-| langchain-openai | latest | Integración OpenAI |
-| langchain-anthropic | latest | Integración Anthropic |
-| langchain-google-genai | latest | Integración Google |
-| ChromaDB | 1.5 | Vector store |
-| sentence-transformers | 5.5 | Modelo de embedding |
-| torch | 2.12 | Backend de embedding |
+| langchain-openai | 1.3.0 | Integración OpenAI |
+| langchain-anthropic | 1.4.4 | Integración Anthropic |
+| langchain-google-genai | 4.2.5 | Integración Google |
+| langchain-ollama | 1.1.0 | Integración Ollama |
+| ChromaDB | 1.5.9 | Vector store |
+| sentence-transformers | 5.5.1 | Modelo de embedding |
+| torch | 2.12.0 | Backend de embedding |
 | SQLite | builtin | Persistencia |
-| httpx | 0.28 | Cliente HTTP (Ollama multimodal) |
-| loguru | 0.7.2 | Logging estructurado |
+| httpx | 0.28.1 | Cliente HTTP (Ollama multimodal) |
+| loguru | 0.7.3 | Logging estructurado |
 
 > **Nota:** los loaders de documentos (`PyPDFLoader`, `TextLoader`, `Docx2txtLoader`,
 > `UnstructuredMarkdownLoader`) siguen viniendo de `langchain-community`, paquete que
@@ -828,7 +831,8 @@ chatbot-agil/
 │   │       ├── config.py              # /config GET + POST
 │   │       ├── health.py              # /health
 │   │       ├── forms.py               # /forms/start + /forms/answer (agile_adoption_assessment)
-│   │       └── debug.py               # /debug/rag (solo dev)
+│   │       ├── debug.py               # /debug/rag (solo dev)
+│   │       └── admin.py               # /admin/users (GET, DELETE — solo admins)
 │   │
 │   ├── core/
 │   │   ├── config.py                  # Settings (pydantic-settings)
@@ -850,7 +854,7 @@ chatbot-agil/
 │   │       ├── anthropic_provider.py  # AnthropicProvider → ChatAnthropic
 │   │       ├── google_provider.py     # GoogleProvider → ChatGoogleGenerativeAI
 │   │       ├── deepseek_provider.py   # DeepseekProvider → ChatOpenAI (DeepSeek)
-│   │       └── ollama_provider.py     # OllamaProvider → Ollama (BaseLLM)
+│   │       └── ollama_provider.py     # OllamaProvider → OllamaLLM (langchain_ollama)
 │   │
 │   ├── rag/
 │   │   ├── vector_store.py            # VectorStore (ChromaDB + HuggingFace)
@@ -879,6 +883,7 @@ chatbot-agil/
 │
 ├── tests/                             # Suite de pruebas
 ├── docs/                              # Documentación técnica
+├── main.py                            # Entrypoint legacy: re-exporta src.main:app
 ├── Dockerfile
 ├── docker-compose.yml
 ├── requirements.txt
