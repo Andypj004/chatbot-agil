@@ -1,0 +1,198 @@
+{
+  "version": "1.0",
+  "description": "Conjunto de verdad fundamental (ground truth) para evaluación de calidad RAG del chatbot de prácticas ágiles. Cada 'relevant_chunks' describe los chunks reales (verificados manualmente contra el índice ChromaDB de los 14 PDFs ingeridos) que contienen la información necesaria para responder la pregunta. Un documento recuperado cuenta como relevante si CUALQUIER descriptor matchea: el filename contiene 'source_contains' (insensible a acentos/mayúsculas) Y el contenido normalizado contiene TODAS las 'anchor_contains'.",
+  "questions": [
+    {
+      "id": "scrum-01",
+      "subtopic": "scrum",
+      "question": "¿Qué es un Sprint en Scrum?",
+      "reference_answer": "Un Sprint es un evento de duración fija de un mes o menos en el que el Equipo Scrum convierte ideas en valor, creando un Incremento potencialmente entregable según la Definición de Terminado.",
+      "relevant_chunks": [
+        {
+          "source_contains": "The Scrum Guide",
+          "anchor_contains": ["Sprints are the heartbeat of Scrum, where ideas are turned into value."]
+        }
+      ]
+    },
+    {
+      "id": "scrum-02",
+      "subtopic": "scrum",
+      "question": "¿Cuáles son los roles principales en Scrum?",
+      "reference_answer": "Scrum define tres roles: el Product Owner, el Scrum Master y el equipo de desarrollo (Developers), que juntos forman el Equipo Scrum.",
+      "relevant_chunks": [
+        {
+          "source_contains": "The Scrum Guide",
+          "anchor_contains": ["A Product Owner orders the work for a complex problem into a Product Backlog."]
+        }
+      ]
+    },
+    {
+      "id": "kanban-01",
+      "subtopic": "kanban",
+      "question": "¿Qué es Kanban?",
+      "reference_answer": "Kanban es un método para definir, gestionar y mejorar servicios de trabajo del conocimiento, basado en visualizar el flujo de trabajo y limitar el trabajo en progreso.",
+      "relevant_chunks": [
+        {
+          "source_contains": "Essential-Kanban-Condensed-Spanish",
+          "anchor_contains": ["Kanban es un método para definir, gestionar y mejorar servicios que entregan trabajo del conocimiento"]
+        }
+      ]
+    },
+    {
+      "id": "kanban-02",
+      "subtopic": "kanban",
+      "question": "¿Qué es el límite de trabajo en progreso (WIP) en Kanban?",
+      "reference_answer": "El límite de trabajo en progreso (WIP) es una restricción que limita la cantidad de elementos de trabajo simultáneos en un sistema kanban, usando señales visuales para evitar la sobrecarga del equipo.",
+      "relevant_chunks": [
+        {
+          "source_contains": "Essential-Kanban-Condensed-Spanish",
+          "anchor_contains": ["un sistema que limite el trabajo en progreso con señales visuales"]
+        }
+      ]
+    },
+    {
+      "id": "historias_usuario-01",
+      "subtopic": "historias_usuario",
+      "question": "¿Qué es una historia de usuario?",
+      "reference_answer": "Una historia de usuario es un formato simple para expresar el valor de negocio deseado de un elemento del product backlog, comprensible tanto por personas de negocio como técnicas, y pensado como punto de partida para una conversación.",
+      "relevant_chunks": [
+        {
+          "source_contains": "Essential Scrum",
+          "anchor_contains": ["User stories are a convenient format for expressing the desired business value for many types of product backlog items"]
+        }
+      ]
+    },
+    {
+      "id": "historias_usuario-02",
+      "subtopic": "historias_usuario",
+      "question": "¿Qué significa el criterio INVEST para historias de usuario?",
+      "reference_answer": "INVEST es un acrónimo (Independent, Negotiable, Valuable, Estimable, Small, Testable) que describe las características de una buena historia de usuario: independiente, negociable, valiosa, estimable, pequeña y verificable.",
+      "relevant_chunks": [
+        {
+          "source_contains": "Essential Scrum",
+          "anchor_contains": ["Estimatable Stories should be estimatable by the team that will design, build, and test them"]
+        }
+      ]
+    },
+    {
+      "id": "retrospectivas-01",
+      "subtopic": "retrospectivas",
+      "question": "¿Qué es una retrospectiva de Sprint?",
+      "reference_answer": "La retrospectiva de Sprint es una actividad de inspección y adaptación que se realiza al final de cada sprint, donde el equipo Scrum revisa su proceso para identificar oportunidades de mejora.",
+      "relevant_chunks": [
+        {
+          "source_contains": "Glosario-Essential Scrum",
+          "anchor_contains": ["An inspect-and-adapt activity performed at the end of every sprint"]
+        }
+      ]
+    },
+    {
+      "id": "retrospectivas-02",
+      "subtopic": "retrospectivas",
+      "question": "¿Cuál es el propósito de la retrospectiva en Scrum?",
+      "reference_answer": "El propósito de la retrospectiva es planificar formas de incrementar la calidad y la efectividad, revisando cómo fue el último Sprint en cuanto a personas, interacciones, procesos, herramientas y la Definición de Terminado.",
+      "relevant_chunks": [
+        {
+          "source_contains": "The Scrum Guide",
+          "anchor_contains": ["The purpose of the Sprint Retrospective is to plan ways to increase quality and effectiveness"]
+        }
+      ]
+    },
+    {
+      "id": "metricas_agiles-01",
+      "subtopic": "metricas_agiles",
+      "question": "¿Qué es la velocidad (velocity) en Scrum?",
+      "reference_answer": "La velocidad es una medida de la tasa a la que el equipo completa trabajo por unidad de tiempo, típicamente calculada como la suma del tamaño de los elementos del backlog completados en un sprint.",
+      "relevant_chunks": [
+        {
+          "source_contains": "Glosario-Essential Scrum",
+          "anchor_contains": ["velocity. A measure of the rate at which work is completed per unit of time"]
+        }
+      ]
+    },
+    {
+      "id": "metricas_agiles-02",
+      "subtopic": "metricas_agiles",
+      "question": "¿Qué es el lead time y el cycle time en Kanban?",
+      "reference_answer": "El Lead Time es el tiempo total desde que un elemento de trabajo entra al sistema hasta que se entrega al cliente; es una métrica clave para medir el tiempo de entrega del servicio en Kanban.",
+      "relevant_chunks": [
+        {
+          "source_contains": "Essential-Kanban-Condensed-Spanish",
+          "anchor_contains": ["El Lead Time, especialmente el tiempo de entrega al cliente, es una métrica clave para los clientes"]
+        }
+      ]
+    },
+    {
+      "id": "roles-01",
+      "subtopic": "roles",
+      "question": "¿Cuál es el rol del Product Owner?",
+      "reference_answer": "El Product Owner es responsable de maximizar el valor del producto, comunicando al equipo de desarrollo qué construir y en qué orden, actuando como la voz de los stakeholders, clientes y usuarios.",
+      "relevant_chunks": [
+        {
+          "source_contains": "Essential Scrum",
+          "anchor_contains": ["the product owner must communicate to the development team what to build and the order in which to build it"]
+        }
+      ]
+    },
+    {
+      "id": "roles-02",
+      "subtopic": "roles",
+      "question": "¿Cuál es el rol del Scrum Master?",
+      "reference_answer": "El Scrum Master es responsable de la efectividad del Equipo Scrum, ayudándolo a mejorar sus prácticas dentro del marco de Scrum, y actúa como un líder que sirve al equipo y a la organización.",
+      "relevant_chunks": [
+        {
+          "source_contains": "The Scrum Guide",
+          "anchor_contains": ["They do this by enabling the Scrum Team to improve its practices, within the Scrum framework"]
+        }
+      ]
+    },
+    {
+      "id": "eventos-01",
+      "subtopic": "eventos",
+      "question": "¿Qué es la Daily Scrum?",
+      "reference_answer": "La Daily Scrum es una reunión diaria breve del equipo de desarrollo para inspeccionar el progreso hacia el objetivo del sprint y adaptar el plan de trabajo del equipo.",
+      "relevant_chunks": [
+        {
+          "source_contains": "Essential Scrum",
+          "anchor_contains": ["the daily scrum is an inspection, synchronization, and adaptive daily planning activity that helps a self"]
+        }
+      ]
+    },
+    {
+      "id": "eventos-02",
+      "subtopic": "eventos",
+      "question": "¿Qué es la Sprint Planning?",
+      "reference_answer": "La Sprint Planning es el evento donde el equipo Scrum planifica el trabajo a realizar durante el sprint, definiendo un objetivo de sprint (sprint goal) y el sprint backlog correspondiente.",
+      "relevant_chunks": [
+        {
+          "source_contains": "Essential Scrum",
+          "anchor_contains": ["At the end of sprint planning the development team"]
+        }
+      ]
+    },
+    {
+      "id": "artefactos-01",
+      "subtopic": "artefactos",
+      "question": "¿Qué es el Product Backlog?",
+      "reference_answer": "El Product Backlog es una lista ordenada y emergente de todo lo que se necesita para mejorar el producto; es la única fuente de requisitos para cualquier cambio que se haga al producto.",
+      "relevant_chunks": [
+        {
+          "source_contains": "Essential Scrum",
+          "anchor_contains": ["The product backlog is composed of backlog items, which I refer to as PBIs, backlog items, or simply items"]
+        }
+      ]
+    },
+    {
+      "id": "artefactos-02",
+      "subtopic": "artefactos",
+      "question": "¿Qué es el Incremento en Scrum?",
+      "reference_answer": "El Incremento es un escalón concreto hacia el objetivo del producto, que debe cumplir con la Definición de Terminado para ser considerado parte de un incremento de producto verificable.",
+      "relevant_chunks": [
+        {
+          "source_contains": "The Scrum Guide",
+          "anchor_contains": ["For the Increment it is the Definition of Done"]
+        }
+      ]
+    }
+  ]
+}
