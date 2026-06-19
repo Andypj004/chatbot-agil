@@ -232,7 +232,7 @@ def build_markdown_report(report: dict) -> str:
     lines.append(f"- **k**: {report['k']}")
     lines.append(f"- **Dataset**: {report['dataset_path']}")
     lines.append(f"- **Questions evaluated**: {report['num_questions']}")
-    if report.get("retrieval") is not None:
+    if report.get("generation") is not None:
         lines.append(f"- **Judge parse errors**: {report['judge_parse_error_count']}")
     lines.append("")
 

@@ -30,6 +30,38 @@ def normalize_text(text: str) -> str:
     return " ".join(normalized.split())
 
 
+def _matching_descriptor_indices(
+    doc: Document,
+    descriptors: List[RelevantChunkDescriptor]
+) -> List[int]:
+    """Return indices of descriptors that match this document.
+
+    A descriptor matches if the normalized source_contains is a substring
+    of the normalized filename (or source metadata if filename absent),
+    AND all normalized anchor_contains strings are substrings of the
+    normalized page_content.
+    """
+    metadata = doc.metadata or {}
+    source_text = metadata.get("filename") or metadata.get("source") or ""
+    source_normalized = normalize_text(source_text)
+    content_normalized = normalize_text(doc.page_content or "")
+
+    matches = []
+    for i, descriptor in enumerate(descriptors):
+        source_contains_norm = normalize_text(descriptor.source_contains)
+        if source_contains_norm not in source_normalized:
+            continue
+
+        all_anchors_match = all(
+            normalize_text(anchor) in content_normalized
+            for anchor in descriptor.anchor_contains
+        )
+        if all_anchors_match:
+            matches.append(i)
+
+    return matches
+
+
 def is_relevant_document(
     doc: Document,
     descriptors: List[RelevantChunkDescriptor]
@@ -51,29 +83,7 @@ def is_relevant_document(
     """
     if not descriptors:
         return False
-
-    metadata = doc.metadata or {}
-    source_text = metadata.get("filename") or metadata.get("source") or ""
-    source_normalized = normalize_text(source_text)
-    content_normalized = normalize_text(doc.page_content or "")
-
-    for descriptor in descriptors:
-        source_contains_norm = normalize_text(descriptor.source_contains)
-
-        # Check if source_contains is a substring of normalized source
-        if source_contains_norm not in source_normalized:
-            continue
-
-        # Check if all anchor_contains are substrings of normalized content
-        all_anchors_match = all(
-            normalize_text(anchor) in content_normalized
-            for anchor in descriptor.anchor_contains
-        )
-
-        if all_anchors_match:
-            return True
-
-    return False
+    return bool(_matching_descriptor_indices(doc, descriptors))
 
 
 def context_precision(
@@ -116,27 +126,9 @@ def context_recall(
     if not descriptors:
         return 1.0
 
-    # Track which descriptors are covered
     covered_descriptors = set()
     for doc in retrieved_docs:
-        for i, descriptor in enumerate(descriptors):
-            metadata = doc.metadata or {}
-            source_text = metadata.get("filename") or metadata.get("source") or ""
-            source_normalized = normalize_text(source_text)
-            content_normalized = normalize_text(doc.page_content or "")
-
-            source_contains_norm = normalize_text(descriptor.source_contains)
-
-            # Check if source_contains is a substring
-            if source_contains_norm not in source_normalized:
-                continue
-
-            # Check if all anchor_contains are substrings
-            if all(
-                normalize_text(anchor) in content_normalized
-                for anchor in descriptor.anchor_contains
-            ):
-                covered_descriptors.add(i)
+        covered_descriptors.update(_matching_descriptor_indices(doc, descriptors))
 
     return len(covered_descriptors) / len(descriptors)
 

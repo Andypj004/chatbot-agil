@@ -58,7 +58,7 @@ Campos:
   - `source_contains`: una subcadena que debe aparecer en el nombre de archivo (`filename`) o, si no existe, en el metadato `source` del documento recuperado.
   - `anchor_contains`: una lista de subcadenas que deben aparecer **todas** en el contenido del chunk recuperado.
 
-Un documento recuperado se considera relevante para una pregunta si **algún** descriptor de su lista de `relevant_chunks` matchea completamente (lógica OR entre descriptores, AND entre `source_contains` y todos los `anchor_contains` dentro de un mismo descriptor). La comparación de texto se hace sobre versiones normalizadas (ver `normalize_text` en `src/evaluation/retrieval_metrics.py`): minúsculas, normalización Unicode NFKD con remoción de tildes/diacríticos, y colapso de espacios — por lo que el matching es insensible a mayúsculas y acentos.
+Un documento recuperado se considera relevante para una pregunta si **algún** descriptor de su lista de `relevant_chunks` matchea completamente (lógica OR entre descriptores, AND entre `source_contains` y todos los `anchor_contains` dentro de un mismo descriptor). La comparación de texto se hace sobre versiones normalizadas (ver `normalize_text` en `src/evaluation/retrieval_metrics.py`): minúsculas, normalización Unicode NFKD con remoción de tildes/diacríticos, eliminación de cualquier carácter que no sea alfanumérico o espacio (puntuación, paréntesis, etc.), y colapso de espacios — por lo que el matching es insensible a mayúsculas, acentos y puntuación.
 
 ### Por qué no se usa `chunk_id`
 

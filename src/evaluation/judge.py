@@ -49,8 +49,6 @@ Responde EXCLUSIVAMENTE con un objeto JSON válido, sin texto adicional antes ni
 }}
 """
 
-_REQUIRED_KEYS = ("faithfulness", "answer_relevancy", "hallucination_rate")
-
 _CODE_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE | re.MULTILINE)
 _JSON_BLOCK_RE = re.compile(r"\{.*\}", re.DOTALL)
 
