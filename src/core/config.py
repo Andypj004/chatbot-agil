@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     )
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     max_tokens: int = Field(default=2000, alias="MAX_TOKENS")
-    temperature: float = Field(default=0.7, alias="TEMPERATURE")
+    temperature: float = Field(default=0.5, alias="TEMPERATURE")
     ollama_base_url: str = Field(
         default="http://localhost:11434", alias="OLLAMA_BASE_URL"
     )
