@@ -23,6 +23,7 @@ class LLMFactory:
         "openai": ["gpt-4o-mini", "gpt-4-turbo-preview", "gpt-3.5-turbo"],
         "anthropic": ["claude-3-5-haiku-latest", "claude-3-5-sonnet-latest"],
         "google": [
+            "gemini-3.1-flash-lite",
             "gemini-1.5-flash",
             "gemini-1.5-flash-8b",
             "gemini-2.0-flash",
@@ -97,9 +98,18 @@ class LLMFactory:
         Raises:
             ValueError: If provider is not registered or API key is missing
         """
-        # Use defaults from settings if not provided
-        provider_name = provider_name or settings.default_llm_provider
-        provider_name = cls.normalize_provider_name(provider_name)
+        # Pilot lock: only the configured default provider may be used. Any other
+        # requested provider (registered or not) is ignored in favor of the default,
+        # and its accompanying model request is ignored too.
+        locked_provider = cls.normalize_provider_name(settings.default_llm_provider)
+        if (
+            provider_name
+            and cls.normalize_provider_name(provider_name) != locked_provider
+        ):
+            provider_name = locked_provider
+            model_name = None
+        else:
+            provider_name = locked_provider
 
         if provider_name not in cls._providers:
             available = ", ".join(cls._providers.keys())
@@ -134,10 +144,8 @@ class LLMFactory:
         else:
             provider_models = cls._provider_models.get(provider_name, [])
             if provider_models and model_name not in provider_models:
-                raise ValueError(
-                    f"Model '{model_name}' is not supported for provider "
-                    f"'{provider_name}'. Available models: {', '.join(provider_models)}"
-                )
+                # Pilot lock: ignore unsupported model requests instead of erroring.
+                model_name = cls._get_default_model_for_provider(provider_name)
 
         logger.info(
             f"Creating {provider_name} provider with model: {model_name}, "
@@ -184,11 +192,12 @@ class LLMFactory:
         return cls._provider_aliases.get(name, name)
 
     @classmethod
-    def get_available_providers(cls) -> list:
-        """Get list of available providers
+    def get_registered_providers(cls) -> list:
+        """Get every provider backend implemented in this codebase.
 
-        Returns:
-            List of registered provider names
+        Unlike `get_available_providers`, this is not subject to the pilot lock —
+        it reflects the factory's full registration, used for introspection
+        (e.g. confirming the multi-provider architecture is in place).
         """
         canonical_providers = {
             cls.normalize_provider_name(provider_name)
@@ -200,12 +209,25 @@ class LLMFactory:
         return ordered + extras
 
     @classmethod
+    def get_available_providers(cls) -> list:
+        """Get list of available providers.
+
+        Pilot lock: only the configured default provider is exposed as available,
+        regardless of how many providers are registered in the factory.
+
+        Returns:
+            Single-item list containing the locked default provider.
+        """
+        return [cls.normalize_provider_name(settings.default_llm_provider)]
+
+    @classmethod
     def get_available_models(cls) -> dict:
-        """Get model catalog for currently available canonical providers."""
-        providers = cls.get_available_providers()
-        return {
-            provider: cls._provider_models.get(provider, []) for provider in providers
-        }
+        """Get model catalog for the currently locked default provider.
+
+        Pilot lock: only the configured default model is exposed as available.
+        """
+        provider = cls.get_available_providers()[0]
+        return {provider: [cls._get_default_model_for_provider(provider)]}
 
 
 # Auto-register providers on import
