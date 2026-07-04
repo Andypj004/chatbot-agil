@@ -246,34 +246,34 @@ def test_chat_endpoint_invalid_request():
     assert response.status_code == 422  # Unprocessable Entity
 
 
-def test_update_config_rejects_invalid_model_for_provider():
-    """Config update should reject models outside the selected provider catalog."""
+def test_update_config_rejects_provider_outside_pilot_lock():
+    """Pilot lock: config update should reject any provider other than the configured default."""
     admin = _register_user(ADMIN_EMAIL, ADMIN_PASSWORD, "Profesor")
 
     response = client.post(
         "/api/v1/config",
         headers=_auth_header(admin["access_token"]),
-        json={"llm_provider": "anthropic", "model_name": "gpt-4-turbo-preview"},
+        json={"llm_provider": "anthropic", "model_name": "claude-3-5-haiku-latest"},
     )
 
     assert response.status_code == 400
-    assert "Invalid model for provider" in response.json()["detail"]
+    assert "Invalid provider" in response.json()["detail"]
 
 
-def test_update_config_sets_provider_default_model_when_model_omitted():
-    """Switching providers without a model should apply the provider default."""
+def test_update_config_accepts_default_provider_without_model():
+    """Pilot lock: resubmitting the locked default provider without a model keeps the configured default."""
     admin = _register_user(ADMIN_EMAIL, ADMIN_PASSWORD, "Profesor")
 
     response = client.post(
         "/api/v1/config",
         headers=_auth_header(admin["access_token"]),
-        json={"llm_provider": "openai"},
+        json={"llm_provider": cfg_module.settings.default_llm_provider},
     )
 
     assert response.status_code == 200
     data = response.json()
-    assert data["llm_provider"] == "openai"
-    assert data["model_name"]
+    assert data["llm_provider"] == cfg_module.settings.default_llm_provider
+    assert data["model_name"] == cfg_module.settings.default_model
 
 
 def test_update_config_requires_authentication():
