@@ -11,7 +11,7 @@ services:
     environment:
       # DEFAULT_LLM_PROVIDER and DEFAULT_MODEL should be defined in the .env file
       # to keep a single source of truth for runtime configuration.
-      OLLAMA_BASE_URL: http://ollama:11434
+      # OLLAMA_BASE_URL: http://ollama:11434
       ANONYMIZED_TELEMETRY: "False"
     volumes:
       - ./data:/app/data
@@ -19,11 +19,11 @@ services:
       - ./chroma_db:/app/chroma_db
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    depends_on:
-      ollama:
-        condition: service_healthy
-      ollama-pull:
-        condition: service_completed_successfully
+    # depends_on:
+    #   ollama:
+    #     condition: service_healthy
+    #   ollama-pull:
+    #     condition: service_completed_successfully
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=5)"]
@@ -32,33 +32,33 @@ services:
       retries: 5
       start_period: 30s
 
-  ollama:
-    image: ollama/ollama:latest
-    container_name: ollama
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama-data:/root/.ollama
-    healthcheck:
-      test: ["CMD", "ollama", "list"]
-      interval: 10s
-      timeout: 5s
-      retries: 20
-      start_period: 20s
-    restart: unless-stopped
+#   ollama:
+#     image: ollama/ollama:latest
+#     container_name: ollama
+#     ports:
+#       - "11434:11434"
+#     volumes:
+#       - ollama-data:/root/.ollama
+#     healthcheck:
+#       test: ["CMD", "ollama", "list"]
+#       interval: 10s
+#       timeout: 5s
+#       retries: 20
+#       start_period: 20s
+#     restart: unless-stopped
 
-  ollama-pull:
-    image: ollama/ollama:latest
-    depends_on:
-      ollama:
-        condition: service_healthy
-    entrypoint: ["ollama"]
-    command: ["pull", "llama3.2:3b"]
-    environment:
-      OLLAMA_HOST: http://ollama:11434
-    volumes:
-      - ollama-data:/root/.ollama
-    restart: "no"
+#   ollama-pull:
+#     image: ollama/ollama:latest
+#     depends_on:
+#       ollama:
+#         condition: service_healthy
+#     entrypoint: ["ollama"]
+#     command: ["pull", "llama3.2:3b"]
+#     environment:
+#       OLLAMA_HOST: http://ollama:11434
+#     volumes:
+#       - ollama-data:/root/.ollama
+#     restart: "no"
 
-volumes:
-  ollama-data:
+# volumes:
+#   ollama-data:
