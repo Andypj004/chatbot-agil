@@ -11,6 +11,10 @@
         {
           "source_contains": "The Scrum Guide",
           "anchor_contains": ["Sprints are the heartbeat of Scrum, where ideas are turned into value."]
+        },
+        {
+          "source_contains": "Essential Scrum",
+          "anchor_contains": ["Scrum organizes work in iterations or cycles of up to a calendar month called sprints"]
         }
       ]
     },
@@ -23,6 +27,10 @@
         {
           "source_contains": "The Scrum Guide",
           "anchor_contains": ["A Product Owner orders the work for a complex problem into a Product Backlog."]
+        },
+        {
+          "source_contains": "Essential Scrum",
+          "anchor_contains": ["Scrum development efforts consist of one or more Scrum teams"]
         }
       ]
     },
@@ -35,6 +43,10 @@
         {
           "source_contains": "Essential-Kanban-Condensed-Spanish",
           "anchor_contains": ["Kanban es un método para definir, gestionar y mejorar servicios que entregan trabajo del conocimiento"]
+        },
+        {
+          "source_contains": "Glosario-Essential-Kanban-Condensed-Spanish",
+          "anchor_contains": ["es un término general para una entidad física o virtual que limita el trabajo en progreso"]
         }
       ]
     },
@@ -47,6 +59,10 @@
         {
           "source_contains": "Essential-Kanban-Condensed-Spanish",
           "anchor_contains": ["un sistema que limite el trabajo en progreso con señales visuales"]
+        },
+        {
+          "source_contains": "Essential Scrum",
+          "anchor_contains": ["Limit the work in process (WIP) at each step to ensure that you are not doing"]
         }
       ]
     },
@@ -59,6 +75,10 @@
         {
           "source_contains": "Essential Scrum",
           "anchor_contains": ["User stories are a convenient format for expressing the desired business value for many types of product backlog items"]
+        },
+        {
+          "source_contains": "Glosario-Essential Scrum",
+          "anchor_contains": ["They provide a great placeholder for a conversation"]
         }
       ]
     },
@@ -71,6 +91,10 @@
         {
           "source_contains": "Essential Scrum",
           "anchor_contains": ["Estimatable Stories should be estimatable by the team that will design, build, and test them"]
+        },
+        {
+          "source_contains": "User Story Applied",
+          "anchor_contains": ["has suggested the acronym INVEST for these six attributes"]
         }
       ]
     },
@@ -83,6 +107,10 @@
         {
           "source_contains": "Glosario-Essential Scrum",
           "anchor_contains": ["An inspect-and-adapt activity performed at the end of every sprint"]
+        },
+        {
+          "source_contains": "Essential Scrum",
+          "anchor_contains": ["Because a Scrum team meets at the end of each sprint to inspect and adapt its"]
         }
       ]
     },
@@ -95,6 +123,10 @@
         {
           "source_contains": "The Scrum Guide",
           "anchor_contains": ["The purpose of the Sprint Retrospective is to plan ways to increase quality and effectiveness"]
+        },
+        {
+          "source_contains": "Essential Scrum",
+          "anchor_contains": ["The focus is on the continuous process improvement necessary to help a good Scrum"]
         }
       ]
     },
@@ -107,6 +139,10 @@
         {
           "source_contains": "Glosario-Essential Scrum",
           "anchor_contains": ["velocity. A measure of the rate at which work is completed per unit of time"]
+        },
+        {
+          "source_contains": "Essential Scrum",
+          "anchor_contains": ["a team's velocity is used as one input to help determine its capacity to commit to work during the upcoming sprint"]
         }
       ]
     },
@@ -119,6 +155,10 @@
         {
           "source_contains": "Essential-Kanban-Condensed-Spanish",
           "anchor_contains": ["El Lead Time, especialmente el tiempo de entrega al cliente, es una métrica clave para los clientes"]
+        },
+        {
+          "source_contains": "Kanban Guide",
+          "anchor_contains": ["Cycle Time: The amount of elapsed time between when a work item starts and when a work item finishes"]
         }
       ]
     },
@@ -131,6 +171,10 @@
         {
           "source_contains": "Essential Scrum",
           "anchor_contains": ["the product owner must communicate to the development team what to build and the order in which to build it"]
+        },
+        {
+          "source_contains": "The Scrum Guide",
+          "anchor_contains": ["The Product Owner is also accountable for effective Product Backlog management"]
         }
       ]
     },
@@ -143,6 +187,10 @@
         {
           "source_contains": "The Scrum Guide",
           "anchor_contains": ["They do this by enabling the Scrum Team to improve its practices, within the Scrum framework"]
+        },
+        {
+          "source_contains": "Essential Scrum",
+          "anchor_contains": ["The ScrumMaster is the Scrum team's process authority"]
         }
       ]
     },
@@ -155,6 +203,10 @@
         {
           "source_contains": "Essential Scrum",
           "anchor_contains": ["the daily scrum is an inspection, synchronization, and adaptive daily planning activity that helps a self"]
+        },
+        {
+          "source_contains": "Essential Scrum",
+          "anchor_contains": ["The daily scrum is a core Scrum practice. If you don't do it, you aren't doing"]
         }
       ]
     },
@@ -167,6 +219,10 @@
         {
           "source_contains": "Essential Scrum",
           "anchor_contains": ["At the end of sprint planning the development team"]
+        },
+        {
+          "source_contains": "The Scrum Guide",
+          "anchor_contains": ["Sprint Planning is timeboxed to a maximum of eight hours for a one-month Sprint"]
         }
       ]
     },
@@ -179,6 +235,10 @@
         {
           "source_contains": "Essential Scrum",
           "anchor_contains": ["The product backlog is composed of backlog items, which I refer to as PBIs, backlog items, or simply items"]
+        },
+        {
+          "source_contains": "The Scrum Guide",
+          "anchor_contains": ["The Product Backlog is an emergent, ordered list of what is needed to improve the product"]
         }
       ]
     },
@@ -191,6 +251,10 @@
         {
           "source_contains": "The Scrum Guide",
           "anchor_contains": ["For the Increment it is the Definition of Done"]
+        },
+        {
+          "source_contains": "Kanban Guide",
+          "anchor_contains": ["Scrum requires the team to create (at minimum) a valuable, useful Increment every Sprint"]
         }
       ]
     }
