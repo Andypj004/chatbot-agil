@@ -42,6 +42,7 @@ ENV/
 
 # Database
 chroma_db/
+chroma_db.writable/
 *.db
 *.sqlite
 
@@ -52,6 +53,9 @@ logs/
 # Data
 data/uploads/
 data/temp/
+
+# Generated reports
+reports/
 
 # Testing
 .pytest_cache/
@@ -65,3 +69,5 @@ Thumbs.db
 
 # Documentation
 docs/_build/
+
+.claude/

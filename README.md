@@ -110,7 +110,6 @@ curl -X POST http://localhost:8000/api/v1/chat \
 |---|---|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Diseño completo: capas, clases, flujo RAG, flujo socrático, estándares |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Despliegue uvicorn y Docker, variables de entorno, troubleshooting |
-| [docs/API.md](docs/API.md) | Referencia completa de endpoints con ejemplos |
 | [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) | Instalación paso a paso y primer uso |
 
 ---
@@ -140,7 +139,7 @@ src/
 ├── api/
 │   ├── models.py            # Esquemas Pydantic
 │   ├── dependencies.py      # Inyección de dependencias
-│   └── routes/              # auth, chat, sessions, documents, config, forms, debug (forms: agile_adoption_assessment)
+│   └── routes/              # auth, chat, sessions, documents, config, forms, debug, admin
 ├── core/
 │   ├── config.py            # Settings (pydantic-settings)
 │   ├── prompt_manager.py    # Constructores de prompts
