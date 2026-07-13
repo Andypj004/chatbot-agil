@@ -21,7 +21,7 @@
 
 El sistema es un chatbot tutor de metodologías ágiles que responde siempre en español. Está diseñado como prototipo académico con arquitectura de producción: API REST, abstracción de proveedor LLM, recuperación aumentada por documentos (RAG) y sesiones persistentes.
 
-**Frameworks soportados:** Scrum, Kanban, Lean, XP, SAFe, ABP.
+**Frameworks soportados:** Scrum, Kanban.
 
 **Capacidades clave:**
 
@@ -30,7 +30,7 @@ El sistema es un chatbot tutor de metodologías ágiles que responde siempre en 
 | Respuesta directa | Prompt directo → LLM |
 | Guía socrática | Clasificador de pregunta → prompt socrático → LLM |
 | Conocimiento de base | RAG: ChromaDB → contexto → LLM |
-| Análisis de imágenes | Base64 multimodal → Ollama / cloud LLM |
+| Análisis de imágenes | Base64 multimodal → Ollama (requiere descomentar el servicio en `docker-compose.yml`) / cloud LLM |
 | Historial | SQLite `messages` con ventana deslizante de 12 mensajes |
 | Cuestionario ágil | Cuestionario de evaluación de adopción ágil (5 preguntas a\|b\|c\|d) |
 | Usuarios | Registro + login + cuestionario de nivel ágil |
@@ -155,14 +155,15 @@ Define la interfaz común:
 - Lee `src/llm/models.json` al importar y sobreescribe el catálogo interno.
 - `create_provider(provider, model, temperature, max_tokens)` — crea instancias validadas.
 - Normaliza alias: `claude → anthropic`, `gemini → google`.
+- **Pilot lock**: `create_provider()` ignora cualquier `provider`/`model` solicitado que no coincida con `settings.default_llm_provider` y usa el default en su lugar (no lanza error). `get_available_providers()` y `get_available_models()` exponen únicamente el proveedor/modelo bloqueado. `get_registered_providers()` (nuevo) sí devuelve el catálogo completo de proveedores implementados, sin el lock, para introspección.
 
-**`src/llm/models.json`** — catálogo de modelos por proveedor (editable sin tocar código):
+**`src/llm/models.json`** — catálogo de modelos por proveedor (editable sin tocar código). Este catálogo completo sigue existiendo y se usa para validar nombres de modelo y para `get_registered_providers()`, pero en runtime el pilot lock limita lo que `get_available_providers()`/`get_available_models()` exponen al proveedor/modelo default:
 
 ```json
 {
   "openai":    ["gpt-4o-mini", "gpt-4-turbo-preview", "gpt-3.5-turbo"],
   "anthropic": ["claude-3-5-haiku-latest", "claude-3-5-sonnet-latest"],
-  "google":    ["gemini-1.5-flash", "gemini-1.5-flash-8b", "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-pro"],
+  "google":    ["gemini-3.1-flash-lite", "gemini-1.5-flash", "gemini-1.5-flash-8b", "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-pro"],
   "deepseek":  ["deepseek-chat", "deepseek-reasoner"],
   "ollama":    ["llama3.2:3b", "qwen2.5:3b", "phi3:mini", "llava:7b", "llava:13b", "gemma3:4b"]
 }
@@ -722,7 +723,7 @@ FastAPI ofrece validación automática de esquemas con Pydantic v2, documentaci�
 Permite persistencia local sin necesidad de infraestructura externa, embeddings con sentence-transformers multilingüe, y filtrado por metadatos clave como `scope` y `session_id` para separar documentos globales de sesión.
 
 **Por qué la abstracción multi-LLM**
-El patrón Factory + Strategy permite cambiar de proveedor sin tocar el código del agente. Esto es crítico en un contexto académico donde la disponibilidad de API keys varía. Ollama permite ejecución completamente local.
+El patrón Factory + Strategy permite añadir o intercambiar proveedores sin tocar el código del agente — registrar uno nuevo solo requiere implementar `BaseLLMProvider` y llamar `register_provider()`. Esto es crítico en un contexto académico donde la disponibilidad de API keys varía. Ollama permite ejecución completamente local (servicio deshabilitado por defecto en `docker-compose.yml`, ver sección 3.3). En esta configuración piloto, el cambio de proveedor en runtime vía API está bloqueado (`LLMFactory` pilot lock): solo el proveedor en `DEFAULT_LLM_PROVIDER` puede usarse en cada momento; cambiar de proveedor activo requiere editar `.env` y reiniciar.
 
 **Por qué SQLite y no una base de datos externa**
 El prototipo prioriza la portabilidad y la facilidad de despliegue. SQLite no requiere un servidor separado y es suficiente para la carga esperada. El patrón writable-fallback resuelve el problema de permisos en entornos Docker sin infraestructura adicional.
@@ -791,11 +792,11 @@ El sistema puntúa cada fuente contra el texto generado (overlap de tokens + fra
 
 | Característica | Mecanismo |
 |---|---|
-| **Funcionalidad** | Cobertura de todos los frameworks ágiles (Scrum, Kanban, Lean, XP, SAFe, ABP). |
+| **Funcionalidad** | Cobertura de frameworks ágiles (Scrum, Kanban). |
 | **Usabilidad** | Prompt en español, nivel adaptativo (1–4), sin mencionar artefactos internos. |
 | **Confiabilidad** | Threading lock en SQLite, writable-fallback para permisos, manejo de errores en todos los endpoints. |
 | **Mantenibilidad** | `models.json` editable sin código, separación de capas, tests unitarios e integración. |
-| **Portabilidad** | Docker Compose + Ollama local para ejecución completamente sin cloud. |
+| **Portabilidad** | Docker Compose; soporte de Ollama local en el código para ejecución sin cloud (servicio comentado por defecto, descomentar para activarlo). |
 | **Seguridad** | PBKDF2-HMAC-SHA256 para contraseñas, tokens almacenados como hash SHA256, ownership de sesiones. |
 | **Eficiencia** | `lru_cache` para proveedores y retrievers, count cache en VectorStore, context window limitado a 12 mensajes. |
 
@@ -861,6 +862,11 @@ chatbot-agil/
 │   │   ├── document_processor.py      # DocumentProcessor (loaders + splitter)
 │   │   └── retriever.py               # RAGRetriever (combined search + scoring)
 │   │
+│   ├── evaluation/
+│   │   ├── dataset.py                 # EvalQuestion/RelevantChunkDescriptor + load_eval_dataset()
+│   │   ├── retrieval_metrics.py       # Context Precision/Recall, MRR (deterministas)
+│   │   └── judge.py                   # LLM-as-judge: Faithfulness, Answer Relevancy, Hallucination Rate
+│   │
 │   ├── memory/
 │   │   ├── session_manager.py         # SessionManager (SQLite, all tables)
 │   │   ├── concept_tracker.py         # extract_concepts, build_history_note
@@ -881,7 +887,29 @@ chatbot-agil/
 │
 ├── chroma_db/                         # Índice vectorial persistente
 │
-├── tests/                             # Suite de pruebas
+├── tests/                             # Suite de pruebas (pytest)
+│   ├── conftest.py                    # Fixtures compartidos
+│   ├── data/
+│   │   └── agile_rag_eval_dataset.json # Dataset de verdad fundamental (16 preguntas, RAG_EVALUATION.md)
+│   ├── test_api.py                    # Tests de integración de endpoints
+│   ├── test_admin.py                  # Gestión de usuarios admin
+│   ├── test_auth.py                   # Seguridad, CRUD de usuarios, login, personalización
+│   ├── test_audit_smoke.py            # Smoke tests de la superficie crítica de la API
+│   ├── test_document_processor.py     # DocumentProcessor (loaders + splitter)
+│   ├── test_evaluation_metrics.py     # Métricas de retrieval y LLM judge (src/evaluation/)
+│   ├── test_iso25010_quality.py       # Suite de evaluación de calidad ISO/IEC 25010
+│   ├── test_llm_factory.py            # LLMFactory, incluyendo el pilot lock
+│   ├── test_performance_pipeline.py   # Tests de rendimiento del pipeline real
+│   ├── test_question_classifier.py    # Clasificación de preguntas y enrutamiento de prompts
+│   ├── test_rag_retriever.py          # RAGRetriever (comportamiento dual-scope)
+│   ├── test_session_concepts.py       # Seguimiento de conceptos repetidos en sesión
+│   └── test_source_citations.py       # Normalización de citas de fuentes
+│
+├── scripts/                            # Utilidades de línea de comandos
+│   ├── evaluate_rag_quality.py        # CLI de evaluación offline de calidad RAG (RAG_EVALUATION.md)
+│   ├── dump_sqlite.py                 # Exporta una base SQLite (esquema + datos) a .sql
+│   └── dump_sqlite_schema.py          # Exporta solo el esquema de una base SQLite a .sql
+│
 ├── docs/                              # Documentación técnica
 ├── main.py                            # Entrypoint legacy: re-exporta src.main:app
 ├── Dockerfile

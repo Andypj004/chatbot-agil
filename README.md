@@ -9,7 +9,7 @@ Prototipo académico de chatbot tutor en español para metodologías ágiles (Sc
 - **Tutoría pedagógica** — responde siempre en español con tono educativo, adapta el nivel al perfil del estudiante.
 - **Enrutamiento inteligente** — clasifica automáticamente si la pregunta pide conocimiento directo o guía socrática.
 - **RAG** — recuperación desde documentos PDF/DOCX/TXT/MD indexados en ChromaDB.
-- **Multi-LLM** — soporte nativo para OpenAI, Anthropic (Claude), Google (Gemini), DeepSeek y Ollama (local).
+- **Multi-LLM** — arquitectura con soporte nativo para OpenAI, Anthropic (Claude), Google (Gemini), DeepSeek y Ollama (local); en esta configuración piloto, en runtime solo está activo el proveedor definido en `DEFAULT_LLM_PROVIDER` (ver "pilot lock" en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)).
 - **Sesiones persistentes** — historial de conversación, conceptos repetidos y citas de fuentes en SQLite.
 - **Autenticación** — registro, login y perfil de usuario con cuestionario de adopción ágil.
 - **Streaming** — respuestas token a token por Server-Sent Events.
@@ -38,7 +38,7 @@ cp .env.example .env
 uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### Opción B — Docker Compose (incluye Ollama)
+### Opción B — Docker Compose
 
 ```bash
 # 1. Configurar .env con las claves necesarias
@@ -50,6 +50,8 @@ docker compose up --build -d
 # 3. Ver logs
 docker compose logs -f chatbot-agil
 ```
+
+> El servicio `ollama` (y `ollama-pull`) está comentado por defecto en `docker-compose.yml`. Descoméntalo si necesitas un proveedor local; ver [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ### Verificación
 
@@ -111,6 +113,7 @@ curl -X POST http://localhost:8000/api/v1/chat \
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Diseño completo: capas, clases, flujo RAG, flujo socrático, estándares |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Despliegue uvicorn y Docker, variables de entorno, troubleshooting |
 | [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) | Instalación paso a paso y primer uso |
+| [docs/RAG_EVALUATION.md](docs/RAG_EVALUATION.md) | Harness de evaluación de calidad RAG (recuperación y generación) |
 
 ---
 
@@ -155,6 +158,10 @@ src/
 │   ├── vector_store.py      # VectorStore (ChromaDB)
 │   ├── document_processor.py
 │   └── retriever.py         # RAGRetriever
+├── evaluation/
+│   ├── dataset.py           # Carga del dataset de verdad fundamental
+│   ├── retrieval_metrics.py # Context Precision/Recall, MRR
+│   └── judge.py             # LLM-as-judge: Faithfulness, Answer Relevancy, Hallucination Rate
 └── memory/
     ├── session_manager.py   # SQLite: sesiones, mensajes, usuarios
     └── concept_tracker.py   # Detección de conceptos repetidos

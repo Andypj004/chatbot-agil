@@ -222,19 +222,26 @@ curl -X POST http://localhost:8000/api/v1/forms/answer \
 
 ---
 
-## Cambiar proveedor LLM en tiempo de ejecución
+## Cambiar proveedor/modelo LLM
+
+`LLMFactory` aplica un **pilot lock**: en runtime solo el proveedor configurado en `DEFAULT_LLM_PROVIDER` (`.env`) puede usarse. `POST /api/v1/config` con un `llm_provider` distinto al default responde `400 "Invalid provider"`:
 
 ```bash
-# Cambiar a Claude
+# Esto falla con 400 si el proveedor default NO es "anthropic"
 curl -X POST http://localhost:8000/api/v1/config \
   -H "Content-Type: application/json" \
   -d '{"llm_provider":"anthropic","model_name":"claude-3-5-haiku-latest"}'
+```
 
-# Cambiar a Ollama local
+Dentro del proveedor default sí se puede cambiar de modelo (o pedir uno fuera del catálogo, que cae al modelo default sin error):
+
+```bash
 curl -X POST http://localhost:8000/api/v1/config \
   -H "Content-Type: application/json" \
-  -d '{"llm_provider":"ollama","model_name":"llama3.2:3b"}'
+  -d '{"llm_provider":"openai","model_name":"gpt-4o-mini"}'
 ```
+
+Para cambiar el proveedor activo de verdad, edita `DEFAULT_LLM_PROVIDER` (y `DEFAULT_MODEL` si aplica) en `.env` y reinicia el servidor.
 
 ---
 
@@ -252,12 +259,23 @@ rm -rf chroma_db/ data/conversations.db
 
 ### Ollama no responde
 
+Aplica solo si reactivaste el servicio `ollama` (comentado por defecto en `docker-compose.yml`) y lo configuraste como `DEFAULT_LLM_PROVIDER`:
+
 ```bash
 # Verificar que Ollama está corriendo
 curl http://localhost:11434/api/tags
 
 # Descargar modelo
 ollama pull llama3.2:3b
+```
+
+### Inspeccionar o respaldar la base SQLite
+
+`scripts/dump_sqlite.py` exporta una base SQLite completa (esquema + datos) a un archivo `.sql`; `scripts/dump_sqlite_schema.py` exporta solo el esquema (tablas, índices, triggers), sin datos:
+
+```bash
+python scripts/dump_sqlite.py data/conversations.db
+python scripts/dump_sqlite_schema.py data/conversations.db
 ```
 
 ### Modelo no encontrado en el catálogo
@@ -269,5 +287,5 @@ Editar `src/llm/models.json` y agregar el modelo al array del proveedor correspo
 ## Lectura siguiente
 
 - [docs/ARCHITECTURE.md](ARCHITECTURE.md) — diseño completo del sistema
-- [docs/API.md](API.md) — referencia de todos los endpoints
+- [Swagger UI](http://localhost:8000/docs) — referencia interactiva de todos los endpoints (con el servidor corriendo)
 - [docs/DEPLOYMENT.md](DEPLOYMENT.md) — despliegue con Docker y configuración completa
