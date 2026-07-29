@@ -14,7 +14,7 @@
 
 - **Python 3.14** o superior (para uvicorn local).
 - **Docker y Docker Compose** (para la opción Docker).
-- La clave de API del proveedor configurado en `DEFAULT_LLM_PROVIDER` (`.env`), o Ollama corriendo localmente si ese es el proveedor default. El pilot lock de `LLMFactory` restringe el sistema a un solo proveedor activo a la vez (ver [docs/ARCHITECTURE.md](ARCHITECTURE.md)).
+- La clave de API del proveedor configurado en `DEFAULT_LLM_PROVIDER` (`.env`), o Ollama corriendo localmente si ese es el proveedor default. Los proveedores adicionales cuya key esté presente en `.env` quedan disponibles para elegir en la UI; con `PILOT_LOCK=true` el sistema se restringe a un solo proveedor activo (ver [docs/ARCHITECTURE.md](ARCHITECTURE.md)).
 
 ---
 

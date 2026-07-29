@@ -9,7 +9,7 @@ Prototipo académico de chatbot tutor en español para metodologías ágiles (Sc
 - **Tutoría pedagógica** — responde siempre en español con tono educativo, adapta el nivel al perfil del estudiante.
 - **Enrutamiento inteligente** — clasifica automáticamente si la pregunta pide conocimiento directo o guía socrática.
 - **RAG** — recuperación desde documentos PDF/DOCX/TXT/MD indexados en ChromaDB.
-- **Multi-LLM** — arquitectura con soporte nativo para OpenAI, Anthropic (Claude), Google (Gemini), DeepSeek y Ollama (local); en esta configuración piloto, en runtime solo está activo el proveedor definido en `DEFAULT_LLM_PROVIDER` (ver "pilot lock" en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)).
+- **Multi-LLM** — arquitectura con soporte nativo para OpenAI, Anthropic (Claude), Google (Gemini), DeepSeek y Ollama (local); en runtime se pueden elegir los proveedores con API key configurada en `.env` (Ollama, si su servidor responde). Con `PILOT_LOCK=true` el sistema queda restringido al proveedor/modelo de `DEFAULT_LLM_PROVIDER`/`DEFAULT_MODEL` (ver "pilot lock" en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)).
 - **Sesiones persistentes** — historial de conversación, conceptos repetidos y citas de fuentes en SQLite.
 - **Autenticación** — registro, login y perfil de usuario con cuestionario de adopción ágil.
 - **Streaming** — respuestas token a token por Server-Sent Events.

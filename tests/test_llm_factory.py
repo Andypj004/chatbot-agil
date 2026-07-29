@@ -9,11 +9,11 @@ from src.llm.base import BaseLLMProvider
 
 
 def test_factory_registration():
-    """Pilot lock: only the configured default provider is registered as available"""
+    """The configured default provider is always advertised as available"""
     available_providers = LLMFactory.get_available_providers()
-    assert available_providers == [
-        LLMFactory.normalize_provider_name(settings.default_llm_provider)
-    ]
+    assert available_providers[0] == LLMFactory.normalize_provider_name(
+        settings.default_llm_provider
+    )
 
 
 def test_create_provider_with_defaults():
@@ -39,6 +39,7 @@ def test_create_provider_with_defaults():
 def test_create_provider_ignores_invalid_requested_provider():
     """Pilot lock: an unregistered provider request falls back to the configured default instead of erroring."""
     with patch("src.llm.factory.settings") as mock_settings:
+        mock_settings.pilot_lock = True
         mock_settings.default_llm_provider = "openai"
         mock_settings.default_model = "gpt-4-turbo-preview"
         mock_settings.get_api_key.return_value = "test-key"
@@ -89,6 +90,7 @@ def test_factory_prefers_settings_default_model_when_supported():
 def test_create_provider_ignores_invalid_requested_model():
     """Pilot lock: an unsupported model request falls back to the configured default instead of erroring."""
     with patch("src.llm.factory.settings") as mock_settings:
+        mock_settings.pilot_lock = True
         mock_settings.default_llm_provider = "openai"
         mock_settings.default_model = "gpt-4-turbo-preview"
         mock_settings.get_api_key.return_value = "test-key"
@@ -105,6 +107,7 @@ def test_create_provider_ignores_invalid_requested_model():
 def test_create_provider_ignores_requested_provider_and_model():
     """Pilot lock: a different valid provider/model request is ignored in favor of the configured defaults."""
     with patch("src.llm.factory.settings") as mock_settings:
+        mock_settings.pilot_lock = True
         mock_settings.default_llm_provider = "openai"
         mock_settings.default_model = "gpt-4-turbo-preview"
         mock_settings.get_api_key.return_value = "test-key"
@@ -120,8 +123,9 @@ def test_create_provider_ignores_requested_provider_and_model():
 
 
 def test_get_available_providers_returns_only_default_provider():
-    """Only the configured default provider should be advertised as available."""
+    """Pilot lock: only the configured default provider should be advertised as available."""
     with patch("src.llm.factory.settings") as mock_settings:
+        mock_settings.pilot_lock = True
         mock_settings.default_llm_provider = "google"
 
         providers = LLMFactory.get_available_providers()
@@ -130,8 +134,9 @@ def test_get_available_providers_returns_only_default_provider():
 
 
 def test_get_available_models_returns_only_default_model():
-    """Only the configured default model should be advertised for the default provider."""
+    """Pilot lock: only the configured default model should be advertised for the default provider."""
     with patch("src.llm.factory.settings") as mock_settings:
+        mock_settings.pilot_lock = True
         mock_settings.default_llm_provider = "google"
         mock_settings.default_model = "gemini-3.1-flash-lite"
 
@@ -140,7 +145,109 @@ def test_get_available_models_returns_only_default_model():
         assert models == {"google": ["gemini-3.1-flash-lite"]}
 
 
+def test_unlocked_available_providers_filter_by_api_key():
+    """Without the pilot lock, only providers with a usable API key are advertised."""
+    with patch("src.llm.factory.settings") as mock_settings:
+        mock_settings.pilot_lock = False
+        mock_settings.default_llm_provider = "google"
+        mock_settings.has_provider_api_key.side_effect = lambda p: p in {
+            "google",
+            "anthropic",
+        }
+
+        with patch("src.llm.factory._reachable_ollama_base_url", return_value=None):
+            providers = LLMFactory.get_available_providers()
+
+        assert providers[0] == "google"
+        assert set(providers) == {"google", "anthropic"}
+        assert "openai" not in providers
+        assert "ollama" not in providers
+
+
+def test_unlocked_available_providers_include_reachable_ollama():
+    """Ollama needs no API key, so it shows up only when its server responds."""
+    with patch("src.llm.factory.settings") as mock_settings:
+        mock_settings.pilot_lock = False
+        mock_settings.default_llm_provider = "google"
+        mock_settings.has_provider_api_key.side_effect = lambda p: p == "google"
+
+        with patch(
+            "src.llm.factory._reachable_ollama_base_url",
+            return_value="http://localhost:11434",
+        ):
+            with patch(
+                "src.llm.providers.ollama_provider._list_ollama_models",
+                return_value=["llama3.2:3b"],
+            ):
+                providers = LLMFactory.get_available_providers()
+                models = LLMFactory.get_available_models()
+
+        assert "ollama" in providers
+        assert models["ollama"] == ["llama3.2:3b"]
+
+
+def test_unlocked_available_models_expose_full_catalog():
+    """Without the pilot lock, each available provider exposes its whole catalog."""
+    with patch("src.llm.factory.settings") as mock_settings:
+        mock_settings.pilot_lock = False
+        mock_settings.default_llm_provider = "google"
+        mock_settings.default_model = "gemini-3.1-flash-lite"
+        mock_settings.has_provider_api_key.side_effect = lambda p: p in {
+            "google",
+            "anthropic",
+        }
+
+        with patch("src.llm.factory._reachable_ollama_base_url", return_value=None):
+            models = LLMFactory.get_available_models()
+
+        assert models["google"] == LLMFactory._provider_models["google"]
+        assert models["anthropic"] == LLMFactory._provider_models["anthropic"]
+        assert len(models["google"]) > 1
+
+
+def test_unlocked_create_provider_honors_requested_provider_and_model():
+    """Without the pilot lock, the requested provider/model is respected."""
+    with patch("src.llm.factory.settings") as mock_settings:
+        mock_settings.pilot_lock = False
+        mock_settings.default_llm_provider = "google"
+        mock_settings.default_model = "gemini-3.1-flash-lite"
+        mock_settings.get_api_key.return_value = "test-key"
+        mock_settings.has_provider_api_key.return_value = True
+        mock_settings.temperature = 0.7
+        mock_settings.max_tokens = 2000
+
+        provider = LLMFactory.create_provider(
+            provider_name="anthropic", model_name="claude-3-5-haiku-latest"
+        )
+
+        assert provider.get_provider_name() == "anthropic"
+        assert provider.model_name == "claude-3-5-haiku-latest"
+
+
+def test_unlocked_create_provider_rejects_provider_without_api_key():
+    """Without the pilot lock, an unusable provider raises instead of silently switching."""
+    with patch("src.llm.factory.settings") as mock_settings:
+        mock_settings.pilot_lock = False
+        mock_settings.default_llm_provider = "google"
+        mock_settings.default_model = "gemini-3.1-flash-lite"
+        mock_settings.has_provider_api_key.side_effect = lambda p: p == "google"
+        mock_settings.temperature = 0.7
+        mock_settings.max_tokens = 2000
+
+        with patch("src.llm.factory._reachable_ollama_base_url", return_value=None):
+            with pytest.raises(ValueError, match="is not available"):
+                LLMFactory.create_provider(provider_name="openai")
+
+
 def test_factory_rejects_invalid_generation_params():
     """Factory should reject invalid shared generation settings early."""
-    with pytest.raises(ValueError, match="temperature must be between 0.0 and 1.0"):
-        LLMFactory.create_provider(provider_name="openai", temperature=1.5)
+    with patch("src.llm.factory.settings") as mock_settings:
+        mock_settings.pilot_lock = False
+        mock_settings.default_llm_provider = "openai"
+        mock_settings.default_model = "gpt-4-turbo-preview"
+        mock_settings.get_api_key.return_value = "test-key"
+        mock_settings.has_provider_api_key.return_value = True
+        mock_settings.max_tokens = 2000
+
+        with pytest.raises(ValueError, match="temperature must be between 0.0 and 1.0"):
+            LLMFactory.create_provider(provider_name="openai", temperature=1.5)

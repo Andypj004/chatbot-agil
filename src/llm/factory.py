@@ -3,12 +3,46 @@
 from typing import Optional
 import json
 import os
+import time
 
 from src.core.config import settings
 from src.core.logger import get_logger
 from src.llm.base import BaseLLMProvider
 
 logger = get_logger()
+
+# Cached result of the Ollama reachability probe: (timestamp, base_url or None).
+# Probing costs a network timeout, and `get_available_providers()` runs on every
+# GET /config and /health call, so the result is reused for a short window.
+_OLLAMA_PROBE_TTL_SECONDS = 60
+_ollama_probe_cache: tuple[float, Optional[str]] = (0.0, None)
+
+
+def _reachable_ollama_base_url(force: bool = False) -> Optional[str]:
+    """Return a reachable Ollama base URL, or None if the server is not up."""
+    global _ollama_probe_cache
+
+    probed_at, cached_url = _ollama_probe_cache
+    if not force and (time.monotonic() - probed_at) < _OLLAMA_PROBE_TTL_SECONDS:
+        return cached_url
+
+    base_url = None
+    try:
+        # Imported lazily: langchain_ollama may not be installed.
+        from src.llm.providers.ollama_provider import (
+            _candidate_base_urls,
+            _is_ollama_reachable,
+        )
+
+        for candidate in _candidate_base_urls(settings.ollama_base_url):
+            if _is_ollama_reachable(candidate):
+                base_url = candidate
+                break
+    except Exception as e:
+        logger.debug(f"Ollama availability probe failed: {e}")
+
+    _ollama_probe_cache = (time.monotonic(), base_url)
+    return base_url
 
 
 class LLMFactory:
@@ -98,18 +132,32 @@ class LLMFactory:
         Raises:
             ValueError: If provider is not registered or API key is missing
         """
-        # Pilot lock: only the configured default provider may be used. Any other
-        # requested provider (registered or not) is ignored in favor of the default,
-        # and its accompanying model request is ignored too.
-        locked_provider = cls.normalize_provider_name(settings.default_llm_provider)
-        if (
-            provider_name
-            and cls.normalize_provider_name(provider_name) != locked_provider
-        ):
-            provider_name = locked_provider
-            model_name = None
+        default_provider = cls.normalize_provider_name(settings.default_llm_provider)
+
+        if settings.pilot_lock:
+            # Pilot lock: only the configured default provider may be used. Any other
+            # requested provider (registered or not) is ignored in favor of the
+            # default, and its accompanying model request is ignored too.
+            if (
+                provider_name
+                and cls.normalize_provider_name(provider_name) != default_provider
+            ):
+                provider_name = default_provider
+                model_name = None
+            else:
+                provider_name = default_provider
         else:
-            provider_name = locked_provider
+            provider_name = (
+                cls.normalize_provider_name(provider_name)
+                if provider_name
+                else default_provider
+            )
+            if not cls.is_provider_available(provider_name):
+                available = ", ".join(cls.get_available_providers())
+                raise ValueError(
+                    f"Provider '{provider_name}' is not available. "
+                    f"Available providers: {available}"
+                )
 
         if provider_name not in cls._providers:
             available = ", ".join(cls._providers.keys())
@@ -144,7 +192,8 @@ class LLMFactory:
         else:
             provider_models = cls._provider_models.get(provider_name, [])
             if provider_models and model_name not in provider_models:
-                # Pilot lock: ignore unsupported model requests instead of erroring.
+                # Unsupported model requests fall back to the provider default
+                # instead of erroring.
                 model_name = cls._get_default_model_for_provider(provider_name)
 
         logger.info(
@@ -209,25 +258,89 @@ class LLMFactory:
         return ordered + extras
 
     @classmethod
-    def get_available_providers(cls) -> list:
-        """Get list of available providers.
+    def is_provider_available(cls, provider_name: str) -> bool:
+        """Return whether a provider is registered and actually usable.
 
-        Pilot lock: only the configured default provider is exposed as available,
-        regardless of how many providers are registered in the factory.
+        A provider is usable when its backend is registered and it has a real API
+        key configured. Ollama needs no key, so it counts as available only when
+        its server responds.
+        """
+        provider_name = cls.normalize_provider_name(provider_name)
+        if provider_name not in cls._providers:
+            return False
+
+        if provider_name == "ollama":
+            return _reachable_ollama_base_url() is not None
+
+        return settings.has_provider_api_key(provider_name)
+
+    @classmethod
+    def get_available_providers(cls) -> list:
+        """Get list of providers that can be selected at runtime.
+
+        With the pilot lock enabled only the configured default provider is
+        exposed. Otherwise every registered provider with a usable configuration
+        is exposed, with the default provider first.
 
         Returns:
-            Single-item list containing the locked default provider.
+            List of canonical provider names.
         """
-        return [cls.normalize_provider_name(settings.default_llm_provider)]
+        default_provider = cls.normalize_provider_name(settings.default_llm_provider)
+
+        if settings.pilot_lock:
+            return [default_provider]
+
+        available = [
+            provider_name
+            for provider_name in cls.get_registered_providers()
+            if cls.is_provider_available(provider_name)
+        ]
+
+        # The default provider always leads the list so it stays in sync with the
+        # `llm_provider` field the frontend preselects, even if it is misconfigured.
+        if default_provider in available:
+            available.remove(default_provider)
+        available.insert(0, default_provider)
+        return available
 
     @classmethod
     def get_available_models(cls) -> dict:
-        """Get model catalog for the currently locked default provider.
+        """Get the model catalog for every currently available provider.
 
-        Pilot lock: only the configured default model is exposed as available.
+        With the pilot lock enabled only the configured default model is exposed.
         """
-        provider = cls.get_available_providers()[0]
-        return {provider: [cls._get_default_model_for_provider(provider)]}
+        providers = cls.get_available_providers()
+
+        if settings.pilot_lock:
+            provider = providers[0]
+            return {provider: [cls._get_default_model_for_provider(provider)]}
+
+        catalog = {}
+        for provider_name in providers:
+            if provider_name == "ollama":
+                catalog[provider_name] = cls._get_installed_ollama_models()
+            else:
+                catalog[provider_name] = list(
+                    cls._provider_models.get(provider_name, [])
+                )
+        return catalog
+
+    @classmethod
+    def _get_installed_ollama_models(cls) -> list:
+        """Return the model tags actually pulled in the local Ollama server."""
+        fallback = list(cls._provider_models.get("ollama", []))
+
+        base_url = _reachable_ollama_base_url()
+        if not base_url:
+            return fallback
+
+        try:
+            from src.llm.providers.ollama_provider import _list_ollama_models
+
+            return _list_ollama_models(base_url) or fallback
+        except Exception as e:
+            logger.debug(f"Could not list installed Ollama models: {e}")
+            return fallback
 
 
 # Auto-register providers on import

@@ -224,24 +224,26 @@ curl -X POST http://localhost:8000/api/v1/forms/answer \
 
 ## Cambiar proveedor/modelo LLM
 
-`LLMFactory` aplica un **pilot lock**: en runtime solo el proveedor configurado en `DEFAULT_LLM_PROVIDER` (`.env`) puede usarse. `POST /api/v1/config` con un `llm_provider` distinto al default responde `400 "Invalid provider"`:
+Los selects de proveedor y modelo del chat se pueblan con `GET /api/v1/config` → `available_providers` / `available_models`. Un proveedor aparece ahí si está registrado en `LLMFactory` **y** tiene una API key utilizable en `.env`; Ollama, que no necesita key, aparece sólo si su servidor responde. Cada mensaje puede usar el proveedor/modelo elegido en el toolbar.
 
 ```bash
-# Esto falla con 400 si el proveedor default NO es "anthropic"
+# Qué se puede elegir ahora mismo
+curl -s http://localhost:8000/api/v1/config | jq '{available_providers, available_models}'
+```
+
+`POST /api/v1/config` (solo admin) cambia el default global; acepta cualquier proveedor disponible:
+
+```bash
 curl -X POST http://localhost:8000/api/v1/config \
-  -H "Content-Type: application/json" \
+  -H "Content-Type: application/json" -H "Authorization: Bearer $ADMIN_TOKEN" \
   -d '{"llm_provider":"anthropic","model_name":"claude-3-5-haiku-latest"}'
 ```
 
-Dentro del proveedor default sí se puede cambiar de modelo (o pedir uno fuera del catálogo, que cae al modelo default sin error):
+Pedir un proveedor sin key disponible responde `400`; pedir un modelo fuera del catálogo del proveedor cae al modelo default sin error.
 
-```bash
-curl -X POST http://localhost:8000/api/v1/config \
-  -H "Content-Type: application/json" \
-  -d '{"llm_provider":"openai","model_name":"gpt-4o-mini"}'
-```
+### Modo piloto (`PILOT_LOCK`)
 
-Para cambiar el proveedor activo de verdad, edita `DEFAULT_LLM_PROVIDER` (y `DEFAULT_MODEL` si aplica) en `.env` y reinicia el servidor.
+Con `PILOT_LOCK=true` en `.env` (por defecto `false`), solo el proveedor y modelo de `DEFAULT_LLM_PROVIDER`/`DEFAULT_MODEL` quedan expuestos y seleccionables: los selects muestran una única opción, `POST /api/v1/config` con otro proveedor responde `400 "Invalid provider"`, y cualquier `llm_provider`/`model_name` distinto enviado en `/api/v1/chat` se ignora en favor del default. Cambiar el proveedor activo requiere entonces editar `.env` y reiniciar el servidor.
 
 ---
 

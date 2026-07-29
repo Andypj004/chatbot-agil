@@ -155,9 +155,12 @@ Define la interfaz común:
 - Lee `src/llm/models.json` al importar y sobreescribe el catálogo interno.
 - `create_provider(provider, model, temperature, max_tokens)` — crea instancias validadas.
 - Normaliza alias: `claude → anthropic`, `gemini → google`.
-- **Pilot lock**: `create_provider()` ignora cualquier `provider`/`model` solicitado que no coincida con `settings.default_llm_provider` y usa el default en su lugar (no lanza error). `get_available_providers()` y `get_available_models()` exponen únicamente el proveedor/modelo bloqueado. `get_registered_providers()` (nuevo) sí devuelve el catálogo completo de proveedores implementados, sin el lock, para introspección.
+- `is_provider_available(provider)` — un proveedor es seleccionable si está registrado y tiene API key utilizable (`settings.has_provider_api_key()`); Ollama no necesita key, así que cuenta como disponible sólo si su servidor responde (sondeo cacheado 60 s).
+- `get_available_providers()` / `get_available_models()` — lo que la UI puede elegir: todos los proveedores disponibles con su catálogo completo, con el default primero. Para Ollama se listan los tags realmente descargados en lugar del catálogo.
+- **Pilot lock** (`PILOT_LOCK` en `.env`, por defecto `false`): al activarlo, `get_available_providers()`/`get_available_models()` exponen únicamente el proveedor/modelo de `DEFAULT_LLM_PROVIDER`/`DEFAULT_MODEL`, y `create_provider()` ignora cualquier `provider`/`model` distinto usando el default en su lugar (no lanza error). Con el lock desactivado, `create_provider()` respeta lo solicitado y lanza `ValueError` (→ HTTP 400) si el proveedor no está disponible.
+- `get_registered_providers()` devuelve el catálogo completo de proveedores implementados, sin lock ni comprobación de keys, para introspección.
 
-**`src/llm/models.json`** — catálogo de modelos por proveedor (editable sin tocar código). Este catálogo completo sigue existiendo y se usa para validar nombres de modelo y para `get_registered_providers()`, pero en runtime el pilot lock limita lo que `get_available_providers()`/`get_available_models()` exponen al proveedor/modelo default:
+**`src/llm/models.json`** — catálogo de modelos por proveedor (editable sin tocar código). Se usa para validar nombres de modelo y para poblar los selects de la UI; con el pilot lock activo, `get_available_providers()`/`get_available_models()` reducen lo expuesto al proveedor/modelo default:
 
 ```json
 {
@@ -723,7 +726,7 @@ FastAPI ofrece validación automática de esquemas con Pydantic v2, documentaci�
 Permite persistencia local sin necesidad de infraestructura externa, embeddings con sentence-transformers multilingüe, y filtrado por metadatos clave como `scope` y `session_id` para separar documentos globales de sesión.
 
 **Por qué la abstracción multi-LLM**
-El patrón Factory + Strategy permite añadir o intercambiar proveedores sin tocar el código del agente — registrar uno nuevo solo requiere implementar `BaseLLMProvider` y llamar `register_provider()`. Esto es crítico en un contexto académico donde la disponibilidad de API keys varía. Ollama permite ejecución completamente local (servicio deshabilitado por defecto en `docker-compose.yml`, ver sección 3.3). En esta configuración piloto, el cambio de proveedor en runtime vía API está bloqueado (`LLMFactory` pilot lock): solo el proveedor en `DEFAULT_LLM_PROVIDER` puede usarse en cada momento; cambiar de proveedor activo requiere editar `.env` y reiniciar.
+El patrón Factory + Strategy permite añadir o intercambiar proveedores sin tocar el código del agente — registrar uno nuevo solo requiere implementar `BaseLLMProvider` y llamar `register_provider()`. Esto es crítico en un contexto académico donde la disponibilidad de API keys varía: por defecto la UI ofrece exactamente los proveedores con key configurada, y el resto ni siquiera aparece. Ollama permite ejecución completamente local (servicio deshabilitado por defecto en `docker-compose.yml`, ver sección 3.3) y se ofrece sólo si el servidor responde. Para reproducir la configuración del piloto —un único proveedor activo, sin posibilidad de cambiarlo en runtime— basta con `PILOT_LOCK=true` en `.env`.
 
 **Por qué SQLite y no una base de datos externa**
 El prototipo prioriza la portabilidad y la facilidad de despliegue. SQLite no requiere un servidor separado y es suficiente para la carga esperada. El patrón writable-fallback resuelve el problema de permisos en entornos Docker sin infraestructura adicional.
