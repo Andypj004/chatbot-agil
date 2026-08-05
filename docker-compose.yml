@@ -9,8 +9,8 @@ services:
     env_file:
       - .env
     environment:
-      # DEFAULT_LLM_PROVIDER and DEFAULT_MODEL should be defined in the .env file
-      # to keep a single source of truth for runtime configuration.
+      # DEFAULT_LLM_PROVIDER, DEFAULT_MODEL and PILOT_LOCK should be defined in
+      # the .env file to keep a single source of truth for runtime configuration.
       # OLLAMA_BASE_URL: http://ollama:11434
       ANONYMIZED_TELEMETRY: "False"
     volumes:

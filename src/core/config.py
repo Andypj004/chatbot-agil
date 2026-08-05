@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     # Application Settings
     default_llm_provider: str = Field(default="openai", alias="DEFAULT_LLM_PROVIDER")
     default_model: str = Field(default="gpt-4-turbo-preview", alias="DEFAULT_MODEL")
+    # Pilot lock: when enabled, only DEFAULT_LLM_PROVIDER/DEFAULT_MODEL are
+    # selectable at runtime (used to reproduce the pilot setup).
+    pilot_lock: bool = Field(default=False, alias="PILOT_LOCK")
     chroma_persist_dir: str = Field(default="./chroma_db", alias="CHROMA_PERSIST_DIR")
     embedding_model: str = Field(
         default="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
@@ -86,6 +89,23 @@ class Settings(BaseSettings):
             "ollama": self.ollama_api_key or "ollama-local",
         }
         return key_mapping.get(provider.lower())
+
+    def has_provider_api_key(self, provider: str) -> bool:
+        """Return whether a provider has a usable (non-placeholder) API key.
+
+        Ollama runs locally and needs no key, so it always passes here; its real
+        availability is checked by probing the server in `LLMFactory`.
+        """
+        if provider.lower() == "ollama":
+            return True
+
+        key = self.get_api_key(provider)
+        if not key or not key.strip():
+            return False
+
+        normalized = key.strip().lower()
+        placeholders = ("your", "changeme", "change-me", "xxx", "<", "sk-...")
+        return not normalized.startswith(placeholders)
 
 
 # Global settings instance

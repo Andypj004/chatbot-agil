@@ -222,19 +222,28 @@ curl -X POST http://localhost:8000/api/v1/forms/answer \
 
 ---
 
-## Cambiar proveedor LLM en tiempo de ejecución
+## Cambiar proveedor/modelo LLM
+
+Los selects de proveedor y modelo del chat se pueblan con `GET /api/v1/config` → `available_providers` / `available_models`. Un proveedor aparece ahí si está registrado en `LLMFactory` **y** tiene una API key utilizable en `.env`; Ollama, que no necesita key, aparece sólo si su servidor responde. Cada mensaje puede usar el proveedor/modelo elegido en el toolbar.
 
 ```bash
-# Cambiar a Claude
-curl -X POST http://localhost:8000/api/v1/config \
-  -H "Content-Type: application/json" \
-  -d '{"llm_provider":"anthropic","model_name":"claude-3-5-haiku-latest"}'
-
-# Cambiar a Ollama local
-curl -X POST http://localhost:8000/api/v1/config \
-  -H "Content-Type: application/json" \
-  -d '{"llm_provider":"ollama","model_name":"llama3.2:3b"}'
+# Qué se puede elegir ahora mismo
+curl -s http://localhost:8000/api/v1/config | jq '{available_providers, available_models}'
 ```
+
+`POST /api/v1/config` (solo admin) cambia el default global; acepta cualquier proveedor disponible:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/config \
+  -H "Content-Type: application/json" -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -d '{"llm_provider":"anthropic","model_name":"claude-3-5-haiku-latest"}'
+```
+
+Pedir un proveedor sin key disponible responde `400`; pedir un modelo fuera del catálogo del proveedor cae al modelo default sin error.
+
+### Modo piloto (`PILOT_LOCK`)
+
+Con `PILOT_LOCK=true` en `.env` (por defecto `false`), solo el proveedor y modelo de `DEFAULT_LLM_PROVIDER`/`DEFAULT_MODEL` quedan expuestos y seleccionables: los selects muestran una única opción, `POST /api/v1/config` con otro proveedor responde `400 "Invalid provider"`, y cualquier `llm_provider`/`model_name` distinto enviado en `/api/v1/chat` se ignora en favor del default. Cambiar el proveedor activo requiere entonces editar `.env` y reiniciar el servidor.
 
 ---
 
@@ -252,12 +261,23 @@ rm -rf chroma_db/ data/conversations.db
 
 ### Ollama no responde
 
+Aplica solo si reactivaste el servicio `ollama` (comentado por defecto en `docker-compose.yml`) y lo configuraste como `DEFAULT_LLM_PROVIDER`:
+
 ```bash
 # Verificar que Ollama está corriendo
 curl http://localhost:11434/api/tags
 
 # Descargar modelo
 ollama pull llama3.2:3b
+```
+
+### Inspeccionar o respaldar la base SQLite
+
+`scripts/dump_sqlite.py` exporta una base SQLite completa (esquema + datos) a un archivo `.sql`; `scripts/dump_sqlite_schema.py` exporta solo el esquema (tablas, índices, triggers), sin datos:
+
+```bash
+python scripts/dump_sqlite.py data/conversations.db
+python scripts/dump_sqlite_schema.py data/conversations.db
 ```
 
 ### Modelo no encontrado en el catálogo
@@ -269,5 +289,5 @@ Editar `src/llm/models.json` y agregar el modelo al array del proveedor correspo
 ## Lectura siguiente
 
 - [docs/ARCHITECTURE.md](ARCHITECTURE.md) — diseño completo del sistema
-- [docs/API.md](API.md) — referencia de todos los endpoints
+- [Swagger UI](http://localhost:8000/docs) — referencia interactiva de todos los endpoints (con el servidor corriendo)
 - [docs/DEPLOYMENT.md](DEPLOYMENT.md) — despliegue con Docker y configuración completa

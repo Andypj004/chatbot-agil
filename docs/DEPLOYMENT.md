@@ -5,7 +5,7 @@
 | Opción | Cuándo usarla |
 |---|---|
 | uvicorn local | Desarrollo, debugging, iteración rápida |
-| Docker Compose | Entorno reproducible, incluye Ollama local |
+| Docker Compose | Entorno reproducible (Ollama deshabilitado por defecto, reactivable comentando/descomentando el servicio) |
 | Docker (solo API) | Despliegue sin Ollama |
 
 ---
@@ -14,7 +14,7 @@
 
 - **Python 3.14** o superior (para uvicorn local).
 - **Docker y Docker Compose** (para la opción Docker).
-- Al menos **una clave de API** de proveedor LLM configurada en `.env`, o Ollama corriendo localmente.
+- La clave de API del proveedor configurado en `DEFAULT_LLM_PROVIDER` (`.env`), o Ollama corriendo localmente si ese es el proveedor default. Los proveedores adicionales cuya key esté presente en `.env` quedan disponibles para elegir en la UI; con `PILOT_LOCK=true` el sistema se restringe a un solo proveedor activo (ver [docs/ARCHITECTURE.md](ARCHITECTURE.md)).
 
 ---
 
@@ -86,13 +86,13 @@ open http://localhost:8000/docs
 
 ## Opción B — Docker Compose
 
-El `docker-compose.yml` levanta tres servicios:
+El `docker-compose.yml` levanta el servicio de la API. Los servicios de Ollama están **comentados por defecto**:
 
-| Servicio | Imagen | Función |
-|---|---|---|
-| `chatbot-agil` | Dockerfile local | API FastAPI |
-| `ollama` | `ollama/ollama:latest` | LLM local |
-| `ollama-pull` | `ollama/ollama:latest` | Descarga `llama3.2:3b` al inicio |
+| Servicio | Imagen | Función | Estado por defecto |
+|---|---|---|---|
+| `chatbot-agil` | Dockerfile local | API FastAPI | Activo |
+| `ollama` | `ollama/ollama:latest` | LLM local | Comentado (descomentar para activar) |
+| `ollama-pull` | `ollama/ollama:latest` | Descarga `llama3.2:3b` al inicio | Comentado (descomentar para activar) |
 
 ### 1. Configurar `.env`
 
@@ -101,7 +101,7 @@ cp .env.example .env
 # Editar con claves API y configuración deseada
 ```
 
-Cuando usas Docker Compose, `OLLAMA_BASE_URL` se sobreescribe automáticamente a `http://ollama:11434` (red interna de Docker).
+Si reactivas el servicio `ollama` descomentándolo en `docker-compose.yml` (junto con la línea `OLLAMA_BASE_URL` y el bloque `depends_on` del servicio `chatbot-agil`), `OLLAMA_BASE_URL` se sobreescribe automáticamente a `http://ollama:11434` (red interna de Docker).
 
 ### 2. Construir y levantar
 
@@ -145,7 +145,7 @@ El `docker-compose.yml` monta estos volúmenes del host:
 | `./logs` | `/app/logs` | Logs de aplicación |
 | `./chroma_db` | `/app/chroma_db` | Índice vectorial ChromaDB |
 
-Los directorios se crean automáticamente al arrancar Docker. El volumen `ollama-data` es gestionado por Docker y persiste los modelos descargados.
+Los directorios se crean automáticamente al arrancar Docker. El volumen `ollama-data` (gestionado por Docker, persiste los modelos descargados) solo aplica si reactivaste el servicio `ollama`, comentado por defecto junto con su declaración de volumen.
 
 ---
 
@@ -169,7 +169,7 @@ Todas las variables se leen desde `.env` (o del entorno del sistema). Las variab
 |---|---|---|
 | `DEFAULT_LLM_PROVIDER` | `openai` | Proveedor usado cuando la request no especifica uno |
 | `DEFAULT_MODEL` | `gpt-4-turbo-preview` | Modelo usado cuando la request no especifica uno |
-| `TEMPERATURE` | `0.7` | Temperatura de muestreo (0.0–1.0) |
+| `TEMPERATURE` | `0.5` | Temperatura de muestreo (0.0–1.0) |
 | `MAX_TOKENS` | `2000` | Tokens máximos en la respuesta |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | URL del servidor Ollama |
 
@@ -255,6 +255,17 @@ curl -X POST http://localhost:8000/api/v1/documents/sessions/{session_id}/upload
 
 ---
 
+## Scripts de utilidad
+
+`scripts/dump_sqlite.py` y `scripts/dump_sqlite_schema.py` exportan una base SQLite a `.sql` para backup o inspección — el primero incluye esquema y datos, el segundo solo el esquema (tablas, índices, triggers):
+
+```bash
+python scripts/dump_sqlite.py data/conversations.db
+python scripts/dump_sqlite_schema.py data/conversations.db
+```
+
+---
+
 ## Producción
 
 Para un despliegue de producción:
@@ -299,6 +310,8 @@ uvicorn src.main:app --reload
 ```
 
 ### Ollama no responde
+
+Aplica solo si reactivaste los servicios `ollama`/`ollama-pull` (comentados por defecto en `docker-compose.yml`) y configuraste `DEFAULT_LLM_PROVIDER=ollama`:
 
 ```bash
 # Verificar que Ollama está corriendo

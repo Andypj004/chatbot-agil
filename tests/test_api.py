@@ -246,8 +246,9 @@ def test_chat_endpoint_invalid_request():
     assert response.status_code == 422  # Unprocessable Entity
 
 
-def test_update_config_rejects_provider_outside_pilot_lock():
+def test_update_config_rejects_provider_outside_pilot_lock(monkeypatch):
     """Pilot lock: config update should reject any provider other than the configured default."""
+    monkeypatch.setattr(cfg_module.settings, "pilot_lock", True)
     admin = _register_user(ADMIN_EMAIL, ADMIN_PASSWORD, "Profesor")
 
     response = client.post(
@@ -258,6 +259,39 @@ def test_update_config_rejects_provider_outside_pilot_lock():
 
     assert response.status_code == 400
     assert "Invalid provider" in response.json()["detail"]
+
+
+def test_update_config_accepts_available_provider_when_unlocked(monkeypatch):
+    """Without the pilot lock, an admin can switch to any provider with a usable API key."""
+    monkeypatch.setattr(cfg_module.settings, "pilot_lock", False)
+    monkeypatch.setattr(
+        cfg_module.Settings,
+        "has_provider_api_key",
+        lambda self, provider: provider in {"anthropic", "google"},
+    )
+    original_provider = cfg_module.settings.default_llm_provider
+    original_model = cfg_module.settings.default_model
+    admin = _register_user(ADMIN_EMAIL, ADMIN_PASSWORD, "Profesor")
+
+    try:
+        response = client.post(
+            "/api/v1/config",
+            headers=_auth_header(admin["access_token"]),
+            json={
+                "llm_provider": "anthropic",
+                "model_name": "claude-3-5-haiku-latest",
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["llm_provider"] == "anthropic"
+        assert data["model_name"] == "claude-3-5-haiku-latest"
+        assert "anthropic" in data["available_providers"]
+        assert len(data["available_models"]["anthropic"]) > 0
+    finally:
+        cfg_module.settings.default_llm_provider = original_provider
+        cfg_module.settings.default_model = original_model
 
 
 def test_update_config_accepts_default_provider_without_model():
